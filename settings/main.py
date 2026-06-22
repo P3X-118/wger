@@ -276,6 +276,38 @@ if WGER_SOCIAL_PROVIDERS:
     INSTALLED_APPS += [f'allauth.socialaccount.providers.{p}' for p in WGER_SOCIAL_PROVIDERS]
 
 #
+# OpenID Connect provider (e.g. Authentik) configured from env — wires wger into
+# an external unified SSO. Requires 'openid_connect' in WGER_SOCIAL_PROVIDERS
+# (above) so allauth's provider app is installed. OIDC_SERVER_URL is the issuer/
+# discovery base (allauth appends /.well-known/openid-configuration); for
+# Authentik it is https://<authentik-host>/application/o/<app-slug>/. The whole
+# block is a no-op unless OIDC_SERVER_URL is set, so it is safe by default.
+if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
+    SOCIALACCOUNT_PROVIDERS = {
+        'openid_connect': {
+            # Also request the shared 'groups' scope so group-based role mapping
+            # (WgerSocialAccountAdapter) can fire.
+            'SCOPE': env.list('OIDC_SCOPE', default=['openid', 'profile', 'email', 'groups']),
+            'APPS': [
+                {
+                    'provider_id': env.str('OIDC_PROVIDER_ID', 'authentik'),
+                    'name': env.str('OIDC_PROVIDER_NAME', 'Authentik'),
+                    'client_id': env.str('OIDC_CLIENT_ID'),
+                    'secret': env.str('OIDC_CLIENT_SECRET'),
+                    'settings': {
+                        'server_url': env.str('OIDC_SERVER_URL'),
+                    },
+                },
+            ],
+        },
+    }
+    # Auto-provision SSO accounts (independent of local ALLOW_REGISTRATION) and
+    # map the OIDC 'groups' claim onto wger admin.
+    SOCIALACCOUNT_ADAPTER = 'wger.core.adapters.WgerSocialAccountAdapter'
+    # Group names (from the 'groups' claim) that grant wger staff + superuser.
+    OIDC_ADMIN_GROUPS = env.list('OIDC_ADMIN_GROUPS', default=['ghostrak-admins'])
+
+#
 # Django Rest Framework SimpleJWT + allauth.headless JWT
 REFRESH_TOKEN_LIFETIME_HOURS = env.int('REFRESH_TOKEN_LIFETIME', 24 * 30 * 4)
 SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'] = timedelta(minutes=env.int('ACCESS_TOKEN_LIFETIME', 15))
