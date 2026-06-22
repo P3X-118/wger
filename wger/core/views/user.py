@@ -17,7 +17,11 @@
 # Standard Library
 import logging
 import re
-from urllib.parse import quote
+import urllib.request
+from urllib.parse import (
+    quote,
+    urlencode,
+)
 
 # Django
 from django.conf import settings
@@ -38,6 +42,7 @@ from django.contrib.auth.views import (
     PasswordResetConfirmView,
     PasswordResetView,
 )
+from django.core.cache import cache
 from django.http import (
     HttpResponseForbidden,
     HttpResponseNotFound,
@@ -770,7 +775,56 @@ class WgerLoginView(AllauthLoginView):
                 return redirect(next_url)
             return redirect(reverse('core:dashboard'))
 
+        # Unauthenticated user. SSO-first: auto-redirect the login page to the
+        # OIDC identity provider, UNLESS explicitly bypassed (?local=1), already
+        # attempted this cycle (so an SSO cancel/error doesn't loop), or the IdP
+        # is unreachable — then fall through to the local login form so admins
+        # aren't locked out when Authentik is down.
+        if (
+            request.method == 'GET'
+            and getattr(settings, 'OIDC_LOGIN_AUTOREDIRECT', False)
+            and 'local' not in request.GET
+        ):
+            if request.session.pop('wger_sso_autoredirected', False):
+                pass  # bounced back from the IdP (cancel/error): show local form
+            elif self._oidc_idp_reachable():
+                request.session['wger_sso_autoredirected'] = True
+                params = {'process': 'login'}
+                next_url = request.GET.get('next')
+                if next_url:
+                    params['next'] = next_url
+                sso_url = reverse(
+                    'openid_connect_login',
+                    kwargs={'provider_id': settings.OIDC_PROVIDER_ID},
+                )
+                return HttpResponseRedirect(f'{sso_url}?{urlencode(params)}')
+
         return super().dispatch(request, *args, **kwargs)
+
+    @staticmethod
+    def _oidc_idp_reachable():
+        """
+        Cached reachability probe of the OIDC issuer's discovery doc so the login
+        page can fall back to the local form when the IdP is down, instead of
+        bouncing users into an error. Any uncertainty (no URL, cache error) is
+        treated as "not reachable" so local login always works.
+        """
+        url = getattr(settings, 'OIDC_DISCOVERY_URL', '')
+        if not url:
+            return False
+        try:
+            cached = cache.get('wger_oidc_idp_up')
+            if cached is not None:
+                return cached
+            reachable = True
+            try:
+                urllib.request.urlopen(url, timeout=3)
+            except Exception:
+                reachable = False
+            cache.set('wger_oidc_idp_up', reachable, 60)
+            return reachable
+        except Exception:
+            return False
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

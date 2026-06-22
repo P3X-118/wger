@@ -283,6 +283,8 @@ if WGER_SOCIAL_PROVIDERS:
 # Authentik it is https://<authentik-host>/application/o/<app-slug>/. The whole
 # block is a no-op unless OIDC_SERVER_URL is set, so it is safe by default.
 if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
+    OIDC_PROVIDER_ID = env.str('OIDC_PROVIDER_ID', 'authentik')
+    OIDC_SERVER_URL = env.str('OIDC_SERVER_URL')
     SOCIALACCOUNT_PROVIDERS = {
         'openid_connect': {
             # Also request the shared 'groups' scope so group-based role mapping
@@ -290,12 +292,12 @@ if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
             'SCOPE': env.list('OIDC_SCOPE', default=['openid', 'profile', 'email', 'groups']),
             'APPS': [
                 {
-                    'provider_id': env.str('OIDC_PROVIDER_ID', 'authentik'),
+                    'provider_id': OIDC_PROVIDER_ID,
                     'name': env.str('OIDC_PROVIDER_NAME', 'Authentik'),
                     'client_id': env.str('OIDC_CLIENT_ID'),
                     'secret': env.str('OIDC_CLIENT_SECRET'),
                     'settings': {
-                        'server_url': env.str('OIDC_SERVER_URL'),
+                        'server_url': OIDC_SERVER_URL,
                     },
                 },
             ],
@@ -306,6 +308,11 @@ if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
     SOCIALACCOUNT_ADAPTER = 'wger.core.adapters.WgerSocialAccountAdapter'
     # Group names (from the 'groups' claim) that grant wger staff + superuser.
     OIDC_ADMIN_GROUPS = env.list('OIDC_ADMIN_GROUPS', default=['ghostrak-admins'])
+    # SSO-first login: auto-redirect the login page straight to the IdP, with a
+    # cached reachability probe of this discovery URL so it falls back to the
+    # local form when the IdP is down (and ?local=1 always shows local).
+    OIDC_LOGIN_AUTOREDIRECT = env.bool('OIDC_LOGIN_AUTOREDIRECT', True)
+    OIDC_DISCOVERY_URL = OIDC_SERVER_URL.rstrip('/') + '/.well-known/openid-configuration'
 
 #
 # Django Rest Framework SimpleJWT + allauth.headless JWT
