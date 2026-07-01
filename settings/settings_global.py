@@ -592,6 +592,13 @@ WGER_SETTINGS = {
     # Trophy system settings
     'TROPHIES_ENABLED': True,
     'TROPHIES_INACTIVE_USER_DAYS': 30,  # Days of inactivity before skipping trophy evaluation
+
+    # Branding seam (env-overridable in settings/main.py; empty = stock wger chrome)
+    'SITE_NAME': '',
+    'BRAND_LOGO_URL': '',
+    'BRAND_FAVICON_URL': '',
+    'CUSTOM_CSS_URL': '',
+    'BRAND_COLOR_MODE': '',  # '', 'dark' or 'light' -> <html data-bs-theme=...>
 }
 
 #

@@ -201,6 +201,19 @@ WGER_SETTINGS['CACHE_API_EXERCISES_CELERY_FORCE_UPDATE'] = env.bool(
 )
 
 #
+# Branding seam (per-host, env-driven). All empty => stock wger chrome, so the
+# shared image stays brand-neutral and only branded hosts opt in.
+WGER_SETTINGS['SITE_NAME'] = env.str('SITE_NAME', '')
+WGER_SETTINGS['BRAND_LOGO_URL'] = env.str('BRAND_LOGO_URL', '')
+WGER_SETTINGS['BRAND_FAVICON_URL'] = env.str('BRAND_FAVICON_URL', '')
+WGER_SETTINGS['CUSTOM_CSS_URL'] = env.str('CUSTOM_CSS_URL', '')
+WGER_SETTINGS['BRAND_COLOR_MODE'] = env.str('BRAND_COLOR_MODE', '')
+
+# New SSO users' default weight unit ('', 'kg' or 'lb'); '' keeps the model
+# default (kg). Applied once, at first provisioning, by WgerSocialAccountAdapter.
+SSO_DEFAULT_WEIGHT_UNIT = env.str('SSO_DEFAULT_WEIGHT_UNIT', '')
+
+#
 # Auth Proxy Authentication
 # https://wger.readthedocs.io/en/latest/administration/auth_proxy.html
 AUTH_PROXY_HEADER = env.str('AUTH_PROXY_HEADER', '')
@@ -313,6 +326,10 @@ if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
     # local form when the IdP is down (and ?local=1 always shows local).
     OIDC_LOGIN_AUTOREDIRECT = env.bool('OIDC_LOGIN_AUTOREDIRECT', True)
     OIDC_DISCOVERY_URL = OIDC_SERVER_URL.rstrip('/') + '/.well-known/openid-configuration'
+    # RP-initiated logout (WgerLogoutView): end the IdP session on wger logout.
+    # Empty end-session URL => discover it from OIDC_DISCOVERY_URL at runtime.
+    OIDC_END_SESSION_URL = env.str('OIDC_END_SESSION_URL', '')
+    OIDC_POST_LOGOUT_REDIRECT_PATH = env.str('OIDC_POST_LOGOUT_REDIRECT_PATH', '/user/login?local=1')
 
 #
 # Django Rest Framework SimpleJWT + allauth.headless JWT

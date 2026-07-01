@@ -35,6 +35,13 @@ def processor(request):
         'mastodon': settings.WGER_SETTINGS.get('MASTODON', ''),
         'allow_registration': settings.WGER_SETTINGS.get('ALLOW_REGISTRATION', False),
 
+        # Branding seam (all empty => stock wger chrome)
+        'brand_site_name': settings.WGER_SETTINGS.get('SITE_NAME', ''),
+        'brand_logo_url': settings.WGER_SETTINGS.get('BRAND_LOGO_URL', ''),
+        'brand_favicon_url': settings.WGER_SETTINGS.get('BRAND_FAVICON_URL', ''),
+        'custom_css_url': settings.WGER_SETTINGS.get('CUSTOM_CSS_URL', ''),
+        'brand_color_mode': settings.WGER_SETTINGS.get('BRAND_COLOR_MODE', ''),
+
         # Languages
         'i18n_language': get_language_data(
             (get_language(), languages_dict.get(get_language(), ENGLISH_SHORT_NAME)),

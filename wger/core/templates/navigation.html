@@ -3,8 +3,9 @@
     <div class="container-fluid">
         <div class="container-lg" style="display: flex;">
             <a class="navbar-brand" href="{% url 'core:index' %}">
-                <img src="{% static 'images/logos/logo-bg-white.png' %}" style="width: 38px;"
-                     alt="wger logo">
+                <img src="{% if brand_logo_url %}{{ brand_logo_url }}{% else %}{% static 'images/logos/logo-bg-white.png' %}{% endif %}"
+                     style="{% if brand_logo_url %}height: 34px; width: auto;{% else %}width: 38px;{% endif %}"
+                     alt="{% if brand_site_name %}{{ brand_site_name }}{% else %}wger{% endif %} logo">
             </a>
             <button class="navbar-toggler"
                     type="button"

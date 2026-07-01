@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 
 # Standard Library
+import json
 import logging
 import re
 import urllib.request
@@ -75,6 +76,7 @@ from django.views.generic import (
 from allauth.account.mixins import RedirectAuthenticatedUserMixin
 from allauth.account.views import (
     LoginView as AllauthLoginView,
+    LogoutView as AllauthLogoutView,
     SignupView as AllauthSignupView,
 )
 from allauth.mfa.utils import is_mfa_enabled
@@ -830,3 +832,56 @@ class WgerLoginView(AllauthLoginView):
         context = super().get_context_data(**kwargs)
         context['use_social_auth'] = bool(settings.WGER_SOCIAL_PROVIDERS)
         return context
+
+
+class WgerLogoutView(AllauthLogoutView):
+    """
+    RP-initiated logout: after ending the local (Django/allauth) session, bounce
+    to the OIDC provider's end-session endpoint so the shared Authentik session
+    is torn down too. Otherwise SSO-first login would silently sign the user
+    straight back in on the next request. No-op when OIDC is not configured.
+    """
+
+    def _end_session_url(self):
+        base = getattr(settings, 'OIDC_END_SESSION_URL', '') or self._discover_end_session()
+        if not base:
+            return None
+        redirect_uri = self.request.build_absolute_uri(
+            getattr(settings, 'OIDC_POST_LOGOUT_REDIRECT_PATH', '/user/login?local=1')
+        )
+        params = {'post_logout_redirect_uri': redirect_uri}
+        id_token = self.request.session.get('oidc_id_token')
+        if id_token:
+            params['id_token_hint'] = id_token
+        return f'{base}?{urlencode(params)}'
+
+    @staticmethod
+    def _discover_end_session():
+        url = getattr(settings, 'OIDC_DISCOVERY_URL', '')
+        if not url:
+            return ''
+        try:
+            cached = cache.get('wger_oidc_end_session')
+            if cached is not None:
+                return cached
+            end = ''
+            try:
+                with urllib.request.urlopen(url, timeout=3) as response:
+                    end = (json.load(response) or {}).get('end_session_endpoint', '') or ''
+            except Exception:
+                end = ''
+            cache.set('wger_oidc_end_session', end, 3600)
+            return end
+        except Exception:
+            return ''
+
+    def post(self, request, *args, **kwargs):
+        # Compute the end-session URL (reads the session) BEFORE allauth flushes
+        # it, then perform the normal logout and redirect out to the IdP. With
+        # ACCOUNT_LOGOUT_ON_GET=True allauth's get() delegates to post(), so this
+        # single override covers both the GET link and the POST form logout paths.
+        # The session-cookie flush is applied by middleware to whatever response
+        # we return, so swapping in our redirect keeps the user logged out.
+        end_session = self._end_session_url()
+        response = super().post(request, *args, **kwargs)
+        return HttpResponseRedirect(end_session) if end_session else response

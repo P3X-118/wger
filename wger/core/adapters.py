@@ -57,9 +57,26 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
                 sorted(admin_groups & claimed),
             )
 
+    def _apply_default_unit(self, user):
+        # New SSO users default to imperial (lb) when SSO_DEFAULT_WEIGHT_UNIT is
+        # set. save_user only runs at first provisioning, so returning users are
+        # never overridden. weight_unit alone flips both weight and height units
+        # (UserProfile.use_metric derives from it).
+        default_unit = getattr(settings, 'SSO_DEFAULT_WEIGHT_UNIT', '')
+        if not default_unit or user is None or not user.pk:
+            return
+        profile = getattr(user, 'userprofile', None)
+        if profile is None:
+            return
+        valid = {choice[0] for choice in profile._meta.get_field('weight_unit').choices}
+        if default_unit in valid and profile.weight_unit != default_unit:
+            profile.weight_unit = default_unit
+            profile.save(update_fields=['weight_unit'])
+
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)
         self._sync_admin(user, sociallogin)
+        self._apply_default_unit(user)
         return user
 
     def pre_social_login(self, request, sociallogin):

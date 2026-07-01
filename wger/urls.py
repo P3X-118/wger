@@ -40,6 +40,7 @@ from rest_framework_simplejwt.views import (
 
 # wger
 from wger.core.api import views as core_api_views
+from wger.core.views.user import WgerLogoutView
 from wger.exercises.api import views as exercises_api_views
 from wger.exercises.sitemap import ExercisesSitemap
 from wger.gallery.api import views as gallery_api_views
@@ -299,6 +300,10 @@ urlpatterns += [
     path('robots.txt', TextTemplateView.as_view(template_name='robots.txt'), name='robots'),
     # allauth account pages are mounted without a language prefix: the OAuth
     # callback's redirect_uri has to be stable
+    # SGC: shadow allauth's logout with an RP-initiated logout that also ends the
+    # OIDC (Authentik) session. Must precede the allauth include (first match) and
+    # keep name='account_logout' so the navbar link resolves here.
+    path('account/logout/', WgerLogoutView.as_view(), name='account_logout'),
     path('account/', include('allauth.urls')),
     # REST auth API consumed by the Flutter app.
     path('allauth/', include('allauth.headless.urls')),
