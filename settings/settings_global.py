@@ -564,6 +564,10 @@ USER_AGENTS_CACHE = 'default'
 WGER_SETTINGS = {
     'ALLOW_GUEST_USERS': True,
     'ALLOW_REGISTRATION': True,
+    # Where an anonymous visitor to the site root lands. 'features' (default) =
+    # stock wger public Features page; 'login' = the SSO-first login view (for
+    # private, SSO-gated instances). Overridable via the ANON_LANDING env var.
+    'ANON_LANDING': 'features',
     'ALLOW_UPLOAD_VIDEOS': False,
     'EMAIL_FROM': 'wger Workout Manager <wger@example.com>',
     'EXERCISE_CACHE_TTL': 3600,

@@ -45,6 +45,12 @@ def index(request):
     if request.user.is_authenticated:
         return HttpResponseRedirect(reverse('core:dashboard'))
     else:
+        # Anonymous landing. Default 'features' = stock wger public page; set
+        # ANON_LANDING=login (SSO-gated instances, e.g. Prime) to send anon
+        # visitors straight to the SSO-first login instead of the unbranded
+        # Features page — the login view then auto-redirects to the IdP.
+        if settings.WGER_SETTINGS['ANON_LANDING'] == 'login':
+            return HttpResponseRedirect(reverse('core:user:login'))
         return HttpResponseRedirect(reverse('software:features'))
 
 
