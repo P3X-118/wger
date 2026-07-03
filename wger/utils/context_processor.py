@@ -40,6 +40,7 @@ def processor(request):
         'brand_logo_url': settings.WGER_SETTINGS.get('BRAND_LOGO_URL', ''),
         'brand_favicon_url': settings.WGER_SETTINGS.get('BRAND_FAVICON_URL', ''),
         'custom_css_url': settings.WGER_SETTINGS.get('CUSTOM_CSS_URL', ''),
+        'custom_js_url': settings.WGER_SETTINGS.get('CUSTOM_JS_URL', ''),
         'brand_color_mode': settings.WGER_SETTINGS.get('BRAND_COLOR_MODE', ''),
 
         # Languages
