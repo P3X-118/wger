@@ -13,6 +13,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Workout Manager.  If not, see <http://www.gnu.org/licenses/>.
 
+# Django
+from django.conf import settings
+
 # Third Party
 from rest_framework.permissions import BasePermission
 
@@ -52,3 +55,20 @@ class CanContributeExercises(BasePermission):
         # Only admins are allowed to delete entries
         if request.method in self.DELETE_METHODS:
             return request.user.has_perm('exercises.delete_exercise')
+
+
+class CanContributeExerciseVideos(CanContributeExercises):
+    """
+    Like CanContributeExercises, but honors WGER_SETTINGS['ALLOW_UPLOAD_VIDEOS']
+
+    When video uploads are disabled instance-wide, all write methods are
+    rejected (reads stay open), so deployments that host exercise videos
+    elsewhere keep wger's media store video-free.
+    """
+
+    def has_permission(self, request, view):
+        if request.method not in self.SAFE_METHODS and not settings.WGER_SETTINGS.get(
+            'ALLOW_UPLOAD_VIDEOS', False
+        ):
+            return False
+        return super().has_permission(request, view)

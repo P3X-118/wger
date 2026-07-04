@@ -34,7 +34,10 @@ from rest_framework.viewsets import ModelViewSet
 
 # wger
 from wger.exercises.api.filtersets import ExerciseFilterSet
-from wger.exercises.api.permissions import CanContributeExercises
+from wger.exercises.api.permissions import (
+    CanContributeExercises,
+    CanContributeExerciseVideos,
+)
 from wger.exercises.api.serializers import (
     DeletionLogSerializer,
     EquipmentSerializer,
@@ -374,7 +377,7 @@ class ExerciseVideoViewSet(ModelViewSet):
 
     queryset = ExerciseVideo.objects.all()
     serializer_class = ExerciseVideoSerializer
-    permission_classes = (CanContributeExercises,)
+    permission_classes = (CanContributeExerciseVideos,)
     ordering_fields = '__all__'
     filterset_fields = (
         'is_main',
