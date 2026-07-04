@@ -45,6 +45,7 @@
     <link rel="stylesheet" type="text/css" href="{% static 'node/@wger-project/react-components/build/assets/index.css' %}" id="react-css">
     <link rel="stylesheet" type="text/css" href="{% static 'css/language-menu.css' %}">
     {% if custom_css_url %}<link rel="stylesheet" type="text/css" href="{{ custom_css_url }}">{% endif %}
+    {% if custom_js_url %}<script src="{{ custom_js_url }}" defer></script>{% endif %}
 
     <script src="{% static 'node/bootstrap/dist/js/bootstrap.bundle.min.js' %}"></script>
     <script src="{% static 'node/htmx.org/dist/htmx.min.js' %}"></script>
@@ -53,7 +54,6 @@
     <script src="{% static 'js/language.js' %}"></script>
     <script>window.WGER_I18N_PATHS = {% react_translation_paths %};</script>
     <script src="{% static 'node/@wger-project/react-components/build/main.js' %}" type="module" defer="defer"></script>
-    {% if custom_js_url %}<script src="{{ custom_js_url }}" defer></script>{% endif %}
 
     {% block header %}{% endblock %}
 
