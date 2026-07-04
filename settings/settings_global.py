@@ -603,6 +603,7 @@ WGER_SETTINGS = {
     'BRAND_LOGO_URL': '',
     'BRAND_FAVICON_URL': '',
     'CUSTOM_CSS_URL': '',
+    'CUSTOM_JS_URL': '',
     'BRAND_COLOR_MODE': '',  # '', 'dark' or 'light' -> <html data-bs-theme=...>
 
     # Teams seam (env-overridable in settings/main.py): OIDC-group-driven team

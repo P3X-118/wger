@@ -208,6 +208,7 @@ WGER_SETTINGS['SITE_NAME'] = env.str('SITE_NAME', '')
 WGER_SETTINGS['BRAND_LOGO_URL'] = env.str('BRAND_LOGO_URL', '')
 WGER_SETTINGS['BRAND_FAVICON_URL'] = env.str('BRAND_FAVICON_URL', '')
 WGER_SETTINGS['CUSTOM_CSS_URL'] = env.str('CUSTOM_CSS_URL', '')
+WGER_SETTINGS['CUSTOM_JS_URL'] = env.str('CUSTOM_JS_URL', '')
 WGER_SETTINGS['BRAND_COLOR_MODE'] = env.str('BRAND_COLOR_MODE', '')
 
 # New SSO users' default weight unit ('', 'kg' or 'lb'); '' keeps the model
