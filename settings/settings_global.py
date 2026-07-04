@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     'wger.gallery',
     'wger.measurements',
     'wger.trophies',
+    'wger.teams',
 
     # reCaptcha support, see https://github.com/praekelt/django-recaptcha
     'django_recaptcha',
@@ -603,6 +604,10 @@ WGER_SETTINGS = {
     'BRAND_FAVICON_URL': '',
     'CUSTOM_CSS_URL': '',
     'BRAND_COLOR_MODE': '',  # '', 'dark' or 'light' -> <html data-bs-theme=...>
+
+    # Teams seam (env-overridable in settings/main.py): OIDC-group-driven team
+    # rosters, coach role and routine assignments. Off = stock wger behavior.
+    'TEAMS_ENABLED': False,
 }
 
 #

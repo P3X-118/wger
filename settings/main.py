@@ -215,6 +215,18 @@ WGER_SETTINGS['BRAND_COLOR_MODE'] = env.str('BRAND_COLOR_MODE', '')
 SSO_DEFAULT_WEIGHT_UNIT = env.str('SSO_DEFAULT_WEIGHT_UNIT', '')
 
 #
+# Teams seam (wger.teams): OIDC-group-driven team rosters, coach role and
+# routine assignments. Everything is a no-op unless TEAMS_ENABLED is set, so
+# the shared image stays neutral.
+WGER_SETTINGS['TEAMS_ENABLED'] = env.bool('TEAMS_ENABLED', False)
+# Group names matching this prefix in the OIDC 'groups' claim become teams.
+OIDC_TEAM_GROUP_PREFIX = env.str('OIDC_TEAM_GROUP_PREFIX', 'team-')
+# Members of any of these claim groups become coaches (wger gym trainers).
+OIDC_COACH_GROUPS = env.list('OIDC_COACH_GROUPS', default=[])
+# Facility gym auto-assigned to SSO users (enables wger's trainer login).
+TEAMS_DEFAULT_GYM = env.str('TEAMS_DEFAULT_GYM', '')
+
+#
 # Auth Proxy Authentication
 # https://wger.readthedocs.io/en/latest/administration/auth_proxy.html
 AUTH_PROXY_HEADER = env.str('AUTH_PROXY_HEADER', '')

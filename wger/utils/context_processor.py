@@ -42,6 +42,9 @@ def processor(request):
         'custom_css_url': settings.WGER_SETTINGS.get('CUSTOM_CSS_URL', ''),
         'brand_color_mode': settings.WGER_SETTINGS.get('BRAND_COLOR_MODE', ''),
 
+        # Teams seam (off => stock wger, no coach console in the nav)
+        'teams_enabled': settings.WGER_SETTINGS.get('TEAMS_ENABLED', False),
+
         # Languages
         'i18n_language': get_language_data(
             (get_language(), languages_dict.get(get_language(), ENGLISH_SHORT_NAME)),

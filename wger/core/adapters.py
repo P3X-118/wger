@@ -35,6 +35,8 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
       ``settings.OIDC_ADMIN_GROUPS`` grants ``is_staff`` + ``is_superuser``;
       absence revokes them, so admin rights track the identity provider's group
       membership on every login.
+    * When ``TEAMS_ENABLED`` is set, also mirrors the claim onto team rosters /
+      the coach role and heals routine assignments (wger.teams).
     """
 
     def is_open_for_signup(self, request, sociallogin):
@@ -73,14 +75,30 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
             profile.weight_unit = default_unit
             profile.save(update_fields=['weight_unit'])
 
+    def _sync_teams(self, user, sociallogin):
+        # Mirror the groups claim onto team rosters / coach role and heal
+        # routine assignments (wger.teams). Must never break the login itself.
+        if not settings.WGER_SETTINGS.get('TEAMS_ENABLED') or user is None or not user.pk:
+            return
+        try:
+            # wger
+            from wger.teams.services import sync_from_social_login
+
+            groups = (sociallogin.account.extra_data or {}).get('groups', []) or []
+            sync_from_social_login(user, groups)
+        except Exception:
+            logger.exception('wger SSO: team sync failed for user %s', user)
+
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)
         self._sync_admin(user, sociallogin)
         self._apply_default_unit(user)
+        self._sync_teams(user, sociallogin)
         return user
 
     def pre_social_login(self, request, sociallogin):
         super().pre_social_login(request, sociallogin)
-        # Returning users: re-sync admin from current group membership.
+        # Returning users: re-sync admin and teams from current group membership.
         if getattr(sociallogin, 'is_existing', False):
             self._sync_admin(sociallogin.user, sociallogin)
+            self._sync_teams(sociallogin.user, sociallogin)

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% load i18n static wger_extras django_bootstrap_breadcrumbs %}
+
+{% block title %}{{ team.name }}{% endblock %}
+
+{% block breadcrumbs %}
+    {{ block.super }}
+    {% breadcrumb "Teams" "teams:overview" %}
+    {% breadcrumb_raw team "teams:detail" team.pk %}
+{% endblock %}
+
+{% block content %}
+<h4>{% translate "Roster" %}</h4>
+<table class="table table-hover">
+    <thead>
+    <tr>
+        <th>{% translate "Player" %}</th>
+        <th>{% translate "Last login" %}</th>
+        <th>{% translate "Last workout" %}</th>
+        <th class="text-end">{% translate "Sessions (7 days)" %}</th>
+        <th class="text-end">{% translate "Programs" %}</th>
+        <th></th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for player in players %}
+        <tr>
+            <td>
+                {{ player.username }}
+                {% if player.get_full_name %}
+                    <small class="text-muted">{{ player.get_full_name }}</small>
+                {% endif %}
+            </td>
+            <td>
+                {% if player.last_login %}
+                    {{ player.last_login|date }}
+                {% else %}
+                    <span class="badge text-bg-warning">{% translate "Never signed in" %}</span>
+                {% endif %}
+            </td>
+            <td>{% if player.last_session %}{{ player.last_session|date }}{% else %}-/-{% endif %}</td>
+            <td class="text-end">{{ player.sessions_7d }}</td>
+            <td class="text-end">{{ player.active_programs }}</td>
+            <td class="text-end">
+                {% if trainer_login_possible and player.pk != user.pk %}
+                    <form method="post"
+                          action="{% url 'core:user:trainer-login' player.pk %}"
+                          class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-light btn-sm">
+                            <span class="{% fa_class 'user-secret' %}"></span>
+                            {% translate "Log in as user" %}
+                        </button>
+                    </form>
+                {% endif %}
+            </td>
+        </tr>
+    {% empty %}
+        <tr>
+            <td colspan="6">
+                {% translate "No players yet. Players appear after their first sign-in with this team's group." %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<h4>{% translate "Assign a routine" %}</h4>
+<form method="post" action="{% url 'teams:assign' team.pk %}" class="row g-3 align-items-end">
+    {% csrf_token %}
+    <div class="col-md-4">
+        <label class="form-label" for="{{ form.template.id_for_label }}">{{ form.template.label }}</label>
+        {{ form.template }}
+    </div>
+    <div class="col-md-3">
+        <label class="form-label" for="{{ form.player.id_for_label }}">{{ form.player.label }}</label>
+        {{ form.player }}
+    </div>
+    <div class="col-md-2">
+        <label class="form-label" for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
+        {{ form.start }}
+    </div>
+    <div class="col-md-3">
+        <label class="form-label" for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
+        {{ form.note }}
+    </div>
+    <div class="col-12">
+        <button type="submit" class="btn btn-success">
+            <span class="{% fa_class 'plus' %}"></span>
+            {% translate "Assign" %}
+        </button>
+        <small class="text-muted ms-2">
+            {% translate "Players who have not signed in yet receive the routine automatically on their first sign-in." %}
+        </small>
+    </div>
+</form>
+{% endblock %}
+
+{% block sidebar %}
+<h4>{% translate "Team programs" %}</h4>
+{% for assignment in assignments %}
+    <div class="card mb-2">
+        <div class="card-body py-2">
+            <strong>{{ assignment.template.name }}</strong>
+            {% if assignment.active %}
+                <span class="badge text-bg-success">{% translate "Active" %}</span>
+            {% else %}
+                <span class="badge text-bg-secondary">{% translate "Inactive" %}</span>
+            {% endif %}
+            <br>
+            <small class="text-muted">
+                {% translate "Start" %}: {{ assignment.start|date }}
+                {% if assignment.note %}&middot; {{ assignment.note }}{% endif %}
+                {% if assignment.assigned_by %}&middot; {{ assignment.assigned_by.username }}{% endif %}
+            </small>
+            <div class="mt-1">
+                <form method="post" action="{% url 'teams:assignment-toggle' assignment.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                    <button type="submit" class="btn btn-light btn-sm">
+                        {% if assignment.active %}{% translate "Deactivate" %}{% else %}{% translate "Activate" %}{% endif %}
+                    </button>
+                </form>
+                <form method="post" action="{% url 'teams:assignment-delete' assignment.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                    <button type="submit" class="btn btn-light btn-sm text-danger">
+                        {% translate "Delete" %}
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+{% empty %}
+    <p class="text-muted">{% translate "No team programs yet." %}</p>
+{% endfor %}
+
+{% if individual_assignments %}
+    <h4>{% translate "Individual programs" %}</h4>
+    {% for assignment in individual_assignments %}
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <strong>{{ assignment.template.name }}</strong>
+                <span class="badge text-bg-info">{{ assignment.user.username }}</span>
+                <br>
+                <small class="text-muted">{% translate "Start" %}: {{ assignment.start|date }}</small>
+                <div class="mt-1">
+                    <form method="post" action="{% url 'teams:assignment-toggle' assignment.pk %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                        <button type="submit" class="btn btn-light btn-sm">
+                            {% if assignment.active %}{% translate "Deactivate" %}{% else %}{% translate "Activate" %}{% endif %}
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'teams:assignment-delete' assignment.pk %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                        <button type="submit" class="btn btn-light btn-sm text-danger">
+                            {% translate "Delete" %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+{% endif %}
+
+<h4>{% translate "Coaches" %}</h4>
+<ul class="list-unstyled">
+    {% for coach in coaches %}
+        <li><span class="{% fa_class 'user' %}"></span> {{ coach.username }}</li>
+    {% empty %}
+        <li class="text-muted">{% translate "No coaches assigned to this team yet." %}</li>
+    {% endfor %}
+</ul>
+
+<p class="text-muted mt-3">
+    <small>
+        {% blocktranslate trimmed %}
+            Deleting an assignment keeps the routines already copied into
+            player accounts; deactivating it only stops new players from
+            receiving it.
+        {% endblocktranslate %}
+    </small>
+</p>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load i18n static wger_extras %}
+
+{% block title %}{% translate "Teams" %}{% endblock %}
+
+{% block content %}
+<table class="table table-hover">
+    <thead>
+    <tr>
+        <th>{% translate "Team" %}</th>
+        <th class="text-end">{% translate "Players" %}</th>
+        <th class="text-end">{% translate "Active programs" %}</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for team in teams %}
+        <tr>
+            <td>
+                <a href="{% url 'teams:detail' team.pk %}">{{ team.name }}</a>
+                {% if not team.is_active %}
+                    <span class="badge text-bg-secondary">{% translate "Inactive" %}</span>
+                {% endif %}
+            </td>
+            <td class="text-end">{{ team.player_count }}</td>
+            <td class="text-end">{{ team.active_assignment_count }}</td>
+        </tr>
+    {% empty %}
+        <tr>
+            <td colspan="3">
+                {% translate "No teams yet. Teams appear automatically when a player signs in with a team group." %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
+
+{% block sidebar %}
+<h4>{% translate "How it works" %}</h4>
+<p class="text-muted">
+    {% blocktranslate trimmed %}
+        Teams and rosters are managed in the identity provider. Membership
+        changes are picked up at each player's next sign-in.
+    {% endblocktranslate %}
+</p>
+{% endblock %}

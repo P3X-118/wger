@@ -333,6 +333,22 @@
                                     </li>
                                 {% endif %}
 
+                                {#          #}
+                                {# Coaching #}
+                                {#          #}
+                                {% if teams_enabled %}
+                                    {% if perms.gym.gym_trainer or user.is_staff %}
+                                        <li class="dropdown-divider"></li>
+                                        <li class="dropdown-header">{% translate "Coaching" %}</li>
+                                        <li>
+                                            <a class="dropdown-item" href="{% url 'teams:overview' %}">
+                                                <span class="{% fa_class 'users' %}"></span>
+                                                {% translate "Teams" %}
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                {% endif %}
+
                                 {#                #}
                                 {# Administration #}
                                 {#                #}
