@@ -333,6 +333,10 @@ if 'openid_connect' in WGER_SOCIAL_PROVIDERS and env.str('OIDC_SERVER_URL', ''):
     # Auto-provision SSO accounts (independent of local ALLOW_REGISTRATION) and
     # map the OIDC 'groups' claim onto wger admin.
     SOCIALACCOUNT_ADAPTER = 'wger.core.adapters.WgerSocialAccountAdapter'
+    # The IdP owns email trust: never send a verification email at SSO signup.
+    # (An undeliverable address would otherwise 500 the OIDC callback via
+    # SMTPRecipientsRefused and break the user's very first login.)
+    SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
     # Group names (from the 'groups' claim) that grant wger staff + superuser.
     OIDC_ADMIN_GROUPS = env.list('OIDC_ADMIN_GROUPS', default=['ghostrak-admins'])
     # SSO-first login: auto-redirect the login page straight to the IdP, with a

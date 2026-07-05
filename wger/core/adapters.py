@@ -42,11 +42,30 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
     def is_open_for_signup(self, request, sociallogin):
         return True
 
+    @staticmethod
+    def _claims(sociallogin):
+        """
+        Flatten the OIDC claims regardless of allauth version.
+
+        allauth >= 65 stores extra_data nested as {'id_token': {...},
+        'userinfo': {...}}; older versions stored the claims flat. Reading only
+        the flat shape silently loses the 'groups' claim (and _sync_admin would
+        then REVOKE staff on every login), so merge all sources.
+        """
+        extra = sociallogin.account.extra_data or {}
+        claims = {}
+        for key in ('id_token', 'userinfo'):
+            value = extra.get(key)
+            if isinstance(value, dict):
+                claims.update(value)
+        claims.update({k: v for k, v in extra.items() if k not in ('id_token', 'userinfo')})
+        return claims
+
     def _sync_admin(self, user, sociallogin):
         admin_groups = set(getattr(settings, 'OIDC_ADMIN_GROUPS', []) or [])
         if not admin_groups or user is None or not user.pk:
             return
-        claimed = set((sociallogin.account.extra_data or {}).get('groups', []) or [])
+        claimed = set(self._claims(sociallogin).get('groups', []) or [])
         should_be_admin = bool(admin_groups & claimed)
         if user.is_staff != should_be_admin or user.is_superuser != should_be_admin:
             user.is_staff = should_be_admin
@@ -84,7 +103,7 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
             # wger
             from wger.teams.services import sync_from_social_login
 
-            groups = (sociallogin.account.extra_data or {}).get('groups', []) or []
+            groups = self._claims(sociallogin).get('groups', []) or []
             sync_from_social_login(user, groups)
         except Exception:
             logger.exception('wger SSO: team sync failed for user %s', user)

@@ -33,6 +33,16 @@ from wger.teams.models import (
 
 
 def _sociallogin(user, groups):
+    # allauth >= 65 nests the OIDC claims under 'id_token'/'userinfo'
+    return mock.Mock(
+        user=user,
+        is_existing=True,
+        account=mock.Mock(extra_data={'userinfo': {'groups': groups}}),
+    )
+
+
+def _sociallogin_flat(user, groups):
+    # pre-65 allauth stored the claims flat; the adapter must accept both
     return mock.Mock(
         user=user,
         is_existing=True,
@@ -94,6 +104,14 @@ class AdapterTeamsSyncTestCase(WgerTestCase):
         with override_settings(WGER_SETTINGS=_wger_settings(TEAMS_ENABLED=True)):
             self.adapter._sync_teams(self.user, sociallogin)
         self.assertEqual(Team.objects.count(), 0)
+
+    def test_flat_claims_still_supported(self):
+        Team.objects.create(slug='14u', name='14U', authentik_group='team-14u')
+        with override_settings(WGER_SETTINGS=_wger_settings(TEAMS_ENABLED=True)):
+            self.adapter._sync_teams(self.user, _sociallogin_flat(self.user, ['team-14u']))
+        self.assertTrue(
+            TeamMembership.objects.filter(user=self.user, team__slug='14u').exists()
+        )
 
     def test_pre_social_login_wires_team_sync(self):
         request = mock.Mock()
