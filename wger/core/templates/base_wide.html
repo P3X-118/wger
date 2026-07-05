@@ -1,4 +1,4 @@
-{% extends "template.html" %}{% load i18n wger_extras django_bootstrap_breadcrumbs %}
+{% extends "template.html" %}{% load i18n wger_extras teams_extras django_bootstrap_breadcrumbs %}
 {% block template %}
 
 
@@ -14,6 +14,7 @@
                     {% blocktranslate with target=user.userprofile.gym.name trimmed %}Back to "{{ target }}"{% endblocktranslate %}
                 </button>
             </form>
+            {% if teams_enabled %}{% teams_coach_bar %}{% endif %}
         </div>
     {% endif %}
 

@@ -21,8 +21,11 @@ from wger.teams import views
 
 urlpatterns = [
     path('', views.TeamsOverviewView.as_view(), name='overview'),
+    path('assign/', views.assign_hub, name='assign-hub'),
     path('team/<int:pk>/', views.TeamDetailView.as_view(), name='detail'),
     path('team/<int:team_pk>/assign', views.assignment_create, name='assign'),
     path('assignment/<int:pk>/toggle', views.assignment_toggle, name='assignment-toggle'),
     path('assignment/<int:pk>/delete', views.assignment_delete, name='assignment-delete'),
+    path('switch/<int:user_pk>', views.switch_player, name='switch-player'),
+    path('return', views.coach_return, name='coach-return'),
 ]

@@ -242,42 +242,56 @@ def copy_routine_for_user(template: Routine, user: User, start_date: datetime.da
     return routine_copy
 
 
-def _materialize_one(assignment: RoutineAssignment, user: User) -> bool:
-    """
-    Give ``user`` their copy of the assignment's template, exactly once.
+def _assignment_targets(assignment: RoutineAssignment):
+    """Current player targets of an assignment (never coaches; inactive => none)"""
+    if not assignment.active:
+        return []
+    if assignment.user_id:
+        return [assignment.user]
+    if not assignment.team.is_active:
+        return []
+    return User.objects.filter(
+        team_memberships__team=assignment.team,
+        team_memberships__is_coach=False,
+    )
 
-    An existing AssignedRoutine row - including a tombstone left by the player
-    deleting their copy - means there is nothing to do.
-    """
-    if AssignedRoutine.objects.filter(assignment=assignment, user=user).exists():
-        return False
 
-    with transaction.atomic():
-        routine = copy_routine_for_user(assignment.template, user, assignment.start)
-        AssignedRoutine.objects.create(assignment=assignment, user=user, routine=routine)
-    logger.info('teams: materialized %s for %s', assignment, user.username)
-    return True
+def materialize_many(assignments) -> int:
+    """
+    Fan a batch of assignments out to their current targets. Returns the number
+    of NEW routine copies created. Idempotent per (assignment, user).
+
+    Within the batch, a player targeted twice with the same template AND start
+    (e.g. member of two teams selected in one coach action) gets a single
+    routine copy; the extra assignments still get an AssignedRoutine row
+    pointing at that shared copy, so the login-time self-heal never produces a
+    duplicate later. Different starts never share a copy.
+    """
+    copies = 0
+    shared: dict[tuple, Routine] = {}
+    for assignment in assignments:
+        for user in _assignment_targets(assignment):
+            if AssignedRoutine.objects.filter(assignment=assignment, user=user).exists():
+                continue
+            key = (assignment.template_id, user.pk, assignment.start)
+            with transaction.atomic():
+                routine = shared.get(key)
+                if routine is None:
+                    routine = copy_routine_for_user(assignment.template, user, assignment.start)
+                    shared[key] = routine
+                    copies += 1
+                AssignedRoutine.objects.create(assignment=assignment, user=user, routine=routine)
+            logger.info('teams: materialized %s for %s', assignment, user.username)
+    return copies
 
 
 def materialize_assignment(assignment: RoutineAssignment) -> int:
     """
-    Fan an assignment out to its current targets. Returns the number of new
-    routine copies created. Idempotent; coaches never receive player programs.
+    Fan a single assignment out to its current targets. Returns the number of
+    new routine copies created. Idempotent; coaches never receive player
+    programs.
     """
-    if not assignment.active:
-        return 0
-
-    if assignment.user_id:
-        targets = [assignment.user]
-    else:
-        if not assignment.team.is_active:
-            return 0
-        targets = User.objects.filter(
-            team_memberships__team=assignment.team,
-            team_memberships__is_coach=False,
-        )
-
-    return sum(1 for target in targets if _materialize_one(assignment, target))
+    return materialize_many([assignment])
 
 
 def materialize_for_user(user: User) -> int:
@@ -299,7 +313,21 @@ def materialize_for_user(user: User) -> int:
         )
         .distinct()
     )
-    return sum(1 for assignment in assignments if _materialize_one(assignment, user))
+    copies = 0
+    shared: dict[tuple, Routine] = {}
+    for assignment in assignments:
+        if AssignedRoutine.objects.filter(assignment=assignment, user=user).exists():
+            continue
+        key = (assignment.template_id, user.pk, assignment.start)
+        with transaction.atomic():
+            routine = shared.get(key)
+            if routine is None:
+                routine = copy_routine_for_user(assignment.template, user, assignment.start)
+                shared[key] = routine
+                copies += 1
+            AssignedRoutine.objects.create(assignment=assignment, user=user, routine=routine)
+        logger.info('teams: materialized %s for %s', assignment, user.username)
+    return copies
 
 
 def sync_from_social_login(user: User, group_names: Iterable[str]) -> None:

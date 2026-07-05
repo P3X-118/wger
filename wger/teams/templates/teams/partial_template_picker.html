@@ -1,0 +1,35 @@
+{% load i18n %}
+<div class="mb-2">
+    <input type="text" class="form-control form-control-sm" id="template-filter"
+           placeholder="{% translate 'Type to filter routines…' %}" autocomplete="off">
+</div>
+<div class="border rounded p-2 mb-2" style="max-height: 14rem; overflow-y: auto;" id="template-list">
+    {% for tpl in templates %}
+        <label class="form-check d-block template-option mb-1">
+            <input class="form-check-input" type="checkbox" name="templates"
+                   value="{{ tpl.pk }}" form="assign-form">
+            <span class="form-check-label">
+                {{ tpl.name }}
+                <small class="text-muted">
+                    ({{ tpl.duration.days }} {% translate "days" %}{% if tpl.is_public %} &middot; {% translate "public" %}{% endif %})
+                </small>
+            </span>
+        </label>
+    {% empty %}
+        <p class="text-muted mb-0">
+            {% translate "No routine templates yet — mark one of your routines as a template first." %}
+        </p>
+    {% endfor %}
+</div>
+<script>
+    (function () {
+        const filter = document.getElementById('template-filter');
+        if (!filter) return;
+        filter.addEventListener('input', function () {
+            const needle = this.value.toLowerCase();
+            document.querySelectorAll('#template-list .template-option').forEach(function (row) {
+                row.classList.toggle('d-none', !row.textContent.toLowerCase().includes(needle));
+            });
+        });
+    })();
+</script>

@@ -23,25 +23,32 @@ from django.utils.translation import gettext_lazy as _
 
 # wger
 from wger.manager.models import Routine
+from wger.teams.models import Team
 
 
-class AssignmentForm(forms.Form):
+class BatchAssignmentForm(forms.Form):
     """
-    Coach assigns a routine template to the whole team or a single player.
+    One coach action: N templates x (teams and/or individual players).
+
+    The checkboxes are rendered by hand in the templates (roster rows, filter
+    lists); this form only validates the submitted pk lists.
     """
 
-    template = forms.ModelChoiceField(
+    templates = forms.ModelMultipleChoiceField(
         queryset=Routine.objects.none(),
-        label=_('Routine'),
-        widget=forms.Select(attrs={'class': 'form-select'}),
+        label=_('Routines'),
     )
 
-    player = forms.ModelChoiceField(
+    teams = forms.ModelMultipleChoiceField(
+        queryset=Team.objects.none(),
+        required=False,
+        label=_('Teams'),
+    )
+
+    players = forms.ModelMultipleChoiceField(
         queryset=User.objects.none(),
         required=False,
-        label=_('Player'),
-        empty_label=_('Whole team'),
-        widget=forms.Select(attrs={'class': 'form-select'}),
+        label=_('Players'),
     )
 
     start = forms.DateField(
@@ -57,14 +64,24 @@ class AssignmentForm(forms.Form):
         widget=forms.TextInput(attrs={'class': 'form-control'}),
     )
 
-    def __init__(self, *args, coach=None, team=None, **kwargs):
+    def __init__(self, *args, coach=None, teams=None, players=None, **kwargs):
+        """
+        coach:   whose template library to offer (public + own)
+        teams:   selectable team targets (None => team targeting disabled)
+        players: selectable player targets
+        """
         super().__init__(*args, **kwargs)
         if coach is not None:
-            self.fields['template'].queryset = Routine.templates.filter(
+            self.fields['templates'].queryset = Routine.templates.filter(
                 Q(is_public=True) | Q(user=coach)
             ).order_by('name')
-        if team is not None:
-            self.fields['player'].queryset = User.objects.filter(
-                team_memberships__team=team,
-                team_memberships__is_coach=False,
-            ).order_by('username')
+        if teams is not None:
+            self.fields['teams'].queryset = teams
+        if players is not None:
+            self.fields['players'].queryset = players
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get('teams') and not cleaned.get('players'):
+            raise forms.ValidationError(_('Pick at least one team or player.'))
+        return cleaned

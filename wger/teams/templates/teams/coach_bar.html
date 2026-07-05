@@ -1,0 +1,30 @@
+{% load i18n %}
+{% if show %}
+    <span class="ms-2 d-inline-flex align-items-center gap-1 flex-wrap">
+        {% for team in teams %}
+            <form method="post" action="{% url 'teams:coach-return' %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                    {% blocktranslate with team=team.name trimmed %}Back to {{ team }}{% endblocktranslate %}
+                </button>
+            </form>
+        {% endfor %}
+        {% if teammates %}
+            <span class="dropdown d-inline">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                        data-bs-toggle="dropdown" type="button">
+                    {% translate "Switch player" %}
+                </button>
+                <span class="dropdown-menu p-0" style="max-height: 16rem; overflow-y: auto;">
+                    {% for mate in teammates %}
+                        <form method="post" action="{% url 'teams:switch-player' mate.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="dropdown-item">{{ mate.username }}</button>
+                        </form>
+                    {% endfor %}
+                </span>
+            </span>
+        {% endif %}
+    </span>
+{% endif %}

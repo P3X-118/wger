@@ -35,6 +35,12 @@
 </table>
 {% endblock %}
 
+{% block options %}
+    <a href="{% url 'teams:assign-hub' %}" class="btn btn-success">
+        {% translate "Assign programs" %}
+    </a>
+{% endblock %}
+
 {% block sidebar %}
 <h4>{% translate "How it works" %}</h4>
 <p class="text-muted">

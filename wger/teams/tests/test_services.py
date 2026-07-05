@@ -35,6 +35,7 @@ from wger.teams.services import (
     copy_routine_for_user,
     materialize_assignment,
     materialize_for_user,
+    materialize_many,
 )
 
 
@@ -200,6 +201,61 @@ class MaterializeAssignmentTestCase(TeamsServiceBase):
         self.assertFalse(Routine.objects.filter(user=self.player2).exists())
 
 
+class MaterializeManyTestCase(TeamsServiceBase):
+    """Batch fan-out: one coach action across several targets"""
+
+    def setUp(self):
+        super().setUp()
+        self.team_b = Team.objects.create(slug='16u', name='16U', authentik_group='team-16u')
+        self.player3 = User.objects.create_user('player3', 'p3@example.com', 'pw')
+        # player1 is on BOTH teams
+        TeamMembership.objects.create(team=self.team_b, user=self.player1)
+        TeamMembership.objects.create(team=self.team_b, user=self.player3)
+
+    def _assignment(self, **kwargs):
+        defaults = {'template': self.template, 'start': datetime.date.today()}
+        defaults.update(kwargs)
+        return RoutineAssignment.objects.create(**defaults)
+
+    def test_shared_player_gets_one_copy_across_teams(self):
+        assignment_a = self._assignment(team=self.team)
+        assignment_b = self._assignment(team=self.team_b)
+
+        copies = materialize_many([assignment_a, assignment_b])
+
+        # player1 (both teams) once, player2 once, player3 once
+        self.assertEqual(copies, 3)
+        self.assertEqual(Routine.objects.filter(user=self.player1, is_template=False).count(), 1)
+        # ...but BOTH assignments carry an instance row for player1, sharing the copy
+        instance_a = assignment_a.instances.get(user=self.player1)
+        instance_b = assignment_b.instances.get(user=self.player1)
+        self.assertEqual(instance_a.routine_id, instance_b.routine_id)
+        # and the login self-heal has nothing left to do
+        self.assertEqual(materialize_for_user(self.player1), 0)
+
+    def test_different_starts_never_share(self):
+        assignment_a = self._assignment(user=self.player1)
+        assignment_b = self._assignment(
+            user=self.player1,
+            start=datetime.date.today() + datetime.timedelta(days=30),
+        )
+        copies = materialize_many([assignment_a, assignment_b])
+        self.assertEqual(copies, 2)
+        self.assertEqual(Routine.objects.filter(user=self.player1).count(), 2)
+
+    def test_login_heal_also_dedupes_same_template_and_start(self):
+        late = User.objects.create_user('player9', 'p9@example.com', 'pw')
+        TeamMembership.objects.create(team=self.team, user=late)
+        TeamMembership.objects.create(team=self.team_b, user=late)
+        self._assignment(team=self.team)
+        self._assignment(team=self.team_b)
+
+        copies = materialize_for_user(late)
+        self.assertEqual(copies, 1)
+        self.assertEqual(Routine.objects.filter(user=late).count(), 1)
+        self.assertEqual(AssignedRoutine.objects.filter(user=late).count(), 2)
+
+
 class MaterializeForUserTestCase(TeamsServiceBase):
     def test_login_self_heal_covers_team_and_user_targets(self):
         team_assignment = RoutineAssignment.objects.create(
@@ -213,19 +269,14 @@ class MaterializeForUserTestCase(TeamsServiceBase):
             start=datetime.date.today(),
         )
 
+        # Same template AND same start via two assignments -> ONE shared copy,
+        # but both assignments get their instance row
         created = materialize_for_user(self.player1)
-        self.assertEqual(created, 2)
-        self.assertEqual(Routine.objects.filter(user=self.player1).count(), 2)
-        self.assertTrue(
-            AssignedRoutine.objects.filter(
-                assignment=team_assignment, user=self.player1
-            ).exists()
-        )
-        self.assertTrue(
-            AssignedRoutine.objects.filter(
-                assignment=user_assignment, user=self.player1
-            ).exists()
-        )
+        self.assertEqual(created, 1)
+        self.assertEqual(Routine.objects.filter(user=self.player1).count(), 1)
+        instance_a = AssignedRoutine.objects.get(assignment=team_assignment, user=self.player1)
+        instance_b = AssignedRoutine.objects.get(assignment=user_assignment, user=self.player1)
+        self.assertEqual(instance_a.routine_id, instance_b.routine_id)
 
         # Second run: nothing new
         self.assertEqual(materialize_for_user(self.player1), 0)

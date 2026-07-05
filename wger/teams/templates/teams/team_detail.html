@@ -11,9 +11,13 @@
 
 {% block content %}
 <h4>{% translate "Roster" %}</h4>
-<table class="table table-hover">
+<table class="table table-hover align-middle">
     <thead>
     <tr>
+        <th style="width: 2rem;">
+            <input type="checkbox" class="form-check-input" id="check-all-players"
+                   title="{% translate 'Select all players' %}">
+        </th>
         <th>{% translate "Player" %}</th>
         <th>{% translate "Last login" %}</th>
         <th>{% translate "Last workout" %}</th>
@@ -25,6 +29,10 @@
     <tbody>
     {% for player in players %}
         <tr>
+            <td>
+                <input type="checkbox" class="form-check-input player-check"
+                       name="players" value="{{ player.pk }}" form="assign-form">
+            </td>
             <td>
                 {{ player.username }}
                 {% if player.get_full_name %}
@@ -57,7 +65,7 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="6">
+            <td colspan="7">
                 {% translate "No players yet. Players appear after their first sign-in with this team's group." %}
             </td>
         </tr>
@@ -65,35 +73,49 @@
     </tbody>
 </table>
 
-<h4>{% translate "Assign a routine" %}</h4>
-<form method="post" action="{% url 'teams:assign' team.pk %}" class="row g-3 align-items-end">
-    {% csrf_token %}
-    <div class="col-md-4">
-        <label class="form-label" for="{{ form.template.id_for_label }}">{{ form.template.label }}</label>
-        {{ form.template }}
+<h4>{% translate "Assign routines" %}</h4>
+<p class="text-muted mb-2">
+    {% translate "Pick one or more routines below. Checked players get them individually; with nobody checked the whole team is assigned (including players who join or first sign in later)." %}
+</p>
+<div class="row">
+    <div class="col-md-6">
+        {% include "teams/partial_template_picker.html" with templates=form.fields.templates.queryset %}
     </div>
-    <div class="col-md-3">
-        <label class="form-label" for="{{ form.player.id_for_label }}">{{ form.player.label }}</label>
-        {{ form.player }}
+    <div class="col-md-6">
+        <form method="post" action="{% url 'teams:assign' team.pk %}" id="assign-form">
+            {% csrf_token %}
+            <div class="mb-2">
+                <label class="form-label" for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
+                {{ form.start }}
+            </div>
+            <div class="mb-2">
+                <label class="form-label" for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
+                {{ form.note }}
+            </div>
+            <button type="submit" class="btn btn-success">
+                <span class="{% fa_class 'plus' %}"></span>
+                {% translate "Assign" %}
+            </button>
+        </form>
     </div>
-    <div class="col-md-2">
-        <label class="form-label" for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
-        {{ form.start }}
-    </div>
-    <div class="col-md-3">
-        <label class="form-label" for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
-        {{ form.note }}
-    </div>
-    <div class="col-12">
-        <button type="submit" class="btn btn-success">
-            <span class="{% fa_class 'plus' %}"></span>
-            {% translate "Assign" %}
-        </button>
-        <small class="text-muted ms-2">
-            {% translate "Players who have not signed in yet receive the routine automatically on their first sign-in." %}
-        </small>
-    </div>
-</form>
+</div>
+<script>
+    (function () {
+        const master = document.getElementById('check-all-players');
+        if (!master) return;
+        master.addEventListener('change', function () {
+            document.querySelectorAll('.player-check').forEach(function (box) {
+                box.checked = master.checked;
+            });
+        });
+    })();
+</script>
+{% endblock %}
+
+{% block options %}
+    <a href="{% url 'teams:assign-hub' %}" class="btn btn-light">
+        {% translate "Assign across teams" %}
+    </a>
 {% endblock %}
 
 {% block sidebar %}
@@ -137,28 +159,36 @@
 
 {% if individual_assignments %}
     <h4>{% translate "Individual programs" %}</h4>
-    {% for assignment in individual_assignments %}
+    {% regroup individual_assignments by template as template_groups %}
+    {% for group in template_groups %}
         <div class="card mb-2">
             <div class="card-body py-2">
-                <strong>{{ assignment.template.name }}</strong>
-                <span class="badge text-bg-info">{{ assignment.user.username }}</span>
-                <br>
-                <small class="text-muted">{% translate "Start" %}: {{ assignment.start|date }}</small>
+                <strong>{{ group.grouper.name }}</strong>
                 <div class="mt-1">
-                    <form method="post" action="{% url 'teams:assignment-toggle' assignment.pk %}" class="d-inline">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
-                        <button type="submit" class="btn btn-light btn-sm">
-                            {% if assignment.active %}{% translate "Deactivate" %}{% else %}{% translate "Activate" %}{% endif %}
-                        </button>
-                    </form>
-                    <form method="post" action="{% url 'teams:assignment-delete' assignment.pk %}" class="d-inline">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
-                        <button type="submit" class="btn btn-light btn-sm text-danger">
-                            {% translate "Delete" %}
-                        </button>
-                    </form>
+                    {% for assignment in group.list %}
+                        <div class="d-flex align-items-center justify-content-between">
+                            <span>
+                                <span class="badge text-bg-info">{{ assignment.user.username }}</span>
+                                <small class="text-muted">{{ assignment.start|date }}</small>
+                            </span>
+                            <span>
+                                <form method="post" action="{% url 'teams:assignment-toggle' assignment.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                                    <button type="submit" class="btn btn-light btn-sm py-0">
+                                        {% translate "Deactivate" %}
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'teams:assignment-delete' assignment.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{% url 'teams:detail' team.pk %}">
+                                    <button type="submit" class="btn btn-light btn-sm py-0 text-danger">
+                                        &times;
+                                    </button>
+                                </form>
+                            </span>
+                        </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>

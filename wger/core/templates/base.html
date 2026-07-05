@@ -1,5 +1,5 @@
 {% extends "template.html" %}
-{% load i18n wger_extras django_bootstrap_breadcrumbs %}
+{% load i18n wger_extras teams_extras django_bootstrap_breadcrumbs %}
 
 {% block template %}
 
@@ -19,6 +19,7 @@
                     {% endblocktranslate %}
                 </button>
             </form>
+            {% if teams_enabled %}{% teams_coach_bar %}{% endif %}
         </div>
     {% endif %}
 
