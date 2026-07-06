@@ -13,6 +13,8 @@
                 <small class="text-muted">
                     ({{ tpl.duration.days }} {% translate "days" %}{% if tpl.is_public %} &middot; {% translate "public" %}{% endif %})
                 </small>
+                <a href="{% url 'manager:routine:view' tpl.pk %}" target="_blank"
+                   rel="noopener" class="ms-1 small" title="{% translate 'Preview' %}">&#8599;</a>
             </span>
         </label>
     {% empty %}

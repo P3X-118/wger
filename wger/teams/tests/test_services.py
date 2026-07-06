@@ -17,6 +17,7 @@ import datetime
 
 # Django
 from django.contrib.auth.models import User
+from django.test import override_settings
 
 # wger
 from wger.core.tests.base_testcase import WgerTestCase
@@ -304,3 +305,133 @@ class MaterializeForUserTestCase(TeamsServiceBase):
         )
         self.assertEqual(materialize_for_user(self.coach), 0)
         self.assertFalse(Routine.objects.filter(user=self.coach).exists())
+
+
+class PlayerMetricsTestCase(TeamsServiceBase):
+    def test_metrics_seeded_idempotently(self):
+        # wger
+        from wger.measurements.models import Category
+        from wger.teams.services import ensure_player_metrics
+
+        with override_settings(TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph']):
+            ensure_player_metrics(self.player1)
+            ensure_player_metrics(self.player1)
+
+        categories = Category.objects.filter(user=self.player1)
+        self.assertEqual(categories.count(), 2)
+        self.assertEqual(categories.get(name='Exit Velo').unit, 'mph')
+
+
+class RosterAdherenceTestCase(TeamsServiceBase):
+    def test_planned_vs_logged(self):
+        # Django
+        from django.utils import timezone
+
+        # wger
+        from wger.manager.models import WorkoutSession
+        from wger.teams.services import (
+            copy_routine_for_user,
+            roster_adherence,
+        )
+
+        today = timezone.localdate()
+        routine = copy_routine_for_user(
+            self.template, self.player1, today - datetime.timedelta(days=6)
+        )
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            user=self.player1,
+            start=routine.start,
+        )
+        AssignedRoutine.objects.create(
+            assignment=assignment, user=self.player1, routine=routine
+        )
+
+        result = roster_adherence([self.player1], windows=(7,))
+        planned, logged, pct = result[self.player1.pk][7]
+        self.assertGreater(planned, 0)
+        self.assertEqual(logged, 0)
+        self.assertEqual(pct, 0)
+
+        for offset in (0, 1):
+            WorkoutSession.objects.create(
+                user=self.player1,
+                date=today - datetime.timedelta(days=offset),
+            )
+        planned2, logged2, pct2 = roster_adherence([self.player1], windows=(7,))[
+            self.player1.pk
+        ][7]
+        self.assertEqual(planned2, planned)
+        self.assertEqual(logged2, 2)
+        self.assertEqual(pct2, min(100, round(100 * 2 / planned)))
+
+
+class ReplaceAssignmentsTestCase(TeamsServiceBase):
+    def test_replace_deactivates_and_trims(self):
+        # wger
+        from wger.teams.services import replace_active_assignments
+
+        old = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team,
+            start=datetime.date.today() - datetime.timedelta(days=10),
+        )
+        materialize_assignment(old)
+        old_copy = old.instances.get(user=self.player1).routine
+        self.assertGreater(old_copy.end, datetime.date.today())
+
+        new_start = datetime.date.today() + datetime.timedelta(days=1)
+        replaced = replace_active_assignments(
+            teams=[self.team], players=[], exclude_ids=[], new_start=new_start
+        )
+        self.assertEqual(replaced, 1)
+        old.refresh_from_db()
+        self.assertFalse(old.active)
+        old_copy.refresh_from_db()
+        self.assertEqual(old_copy.end, new_start - datetime.timedelta(days=1))
+
+
+class RosterSnapshotTestCase(TeamsServiceBase):
+    @override_settings(TEAMS_METRICS=['Exit Velo|mph'])
+    def test_apply_snapshot_precreates_and_materializes(self):
+        # wger
+        from wger.measurements.models import Category
+        from wger.teams.services import apply_roster_snapshot
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team,
+            start=datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+
+        snapshot = {
+            'teams': {
+                'team-14u': [
+                    {'username': 'player1', 'email': 'p1@example.com', 'name': ''},
+                    {'username': 'newkid', 'email': 'nk@example.com', 'name': 'New Kid'},
+                    {'username': 'coach1', 'email': 'c1@example.com', 'name': ''},
+                ],
+            },
+            'coaches': {'coach1'},
+        }
+        stats = apply_roster_snapshot(snapshot)
+
+        self.assertEqual(stats['users_created'], 1)
+        newkid = User.objects.get(username='newkid')
+        self.assertEqual(newkid.first_name, 'New')
+        self.assertEqual(newkid.last_name, 'Kid')
+        self.assertFalse(newkid.has_usable_password())
+        self.assertTrue(
+            TeamMembership.objects.filter(team=self.team, user=newkid, is_coach=False).exists()
+        )
+        # pre-created player got the active program + facility metrics
+        self.assertTrue(Routine.objects.filter(user=newkid, is_template=False).exists())
+        self.assertTrue(Category.objects.filter(user=newkid).exists())
+        # player2 was not in the snapshot -> membership removed (authoritative)
+        self.assertFalse(
+            TeamMembership.objects.filter(team=self.team, user=self.player2).exists()
+        )
+        # coach flag honored
+        membership = TeamMembership.objects.get(team=self.team, user=self.coach)
+        self.assertTrue(membership.is_coach)

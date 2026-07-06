@@ -94,6 +94,24 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
             profile.weight_unit = default_unit
             profile.save(update_fields=['weight_unit'])
 
+    def _sync_profile(self, user, sociallogin):
+        # Mirror the IdP's name claims so rosters show real names instead of
+        # usernames/emails. Claim-authoritative on every login.
+        if user is None or not user.pk:
+            return
+        claims = self._claims(sociallogin)
+        first = claims.get('given_name') or ''
+        last = claims.get('family_name') or ''
+        if not first and not last:
+            name = (claims.get('name') or '').strip()
+            if name:
+                first, _, last = name.partition(' ')
+        first, last = first.strip()[:150], last.strip()[:150]
+        if (first or last) and (user.first_name != first or user.last_name != last):
+            user.first_name = first
+            user.last_name = last
+            user.save(update_fields=['first_name', 'last_name'])
+
     def _sync_teams(self, user, sociallogin):
         # Mirror the groups claim onto team rosters / coach role and heal
         # routine assignments (wger.teams). Must never break the login itself.
@@ -111,13 +129,15 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)
         self._sync_admin(user, sociallogin)
+        self._sync_profile(user, sociallogin)
         self._apply_default_unit(user)
         self._sync_teams(user, sociallogin)
         return user
 
     def pre_social_login(self, request, sociallogin):
         super().pre_social_login(request, sociallogin)
-        # Returning users: re-sync admin and teams from current group membership.
+        # Returning users: re-sync admin, profile and teams from current claims.
         if getattr(sociallogin, 'is_existing', False):
             self._sync_admin(sociallogin.user, sociallogin)
+            self._sync_profile(sociallogin.user, sociallogin)
             self._sync_teams(sociallogin.user, sociallogin)

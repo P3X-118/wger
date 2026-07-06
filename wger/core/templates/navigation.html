@@ -137,9 +137,23 @@
                     </li>
 
 
+                    {#                                                       #}
+                    {# Programs (teams feature): the template gallery, front #}
+                    {# and center for training-focused deployments.          #}
+                    {#                                                       #}
+                    {% if teams_enabled %}
+                        <li class="nav-item">
+                            <a href="{% url 'manager:template:public' %}"
+                               class="nav-link text-white" rel="nofollow">
+                                {% translate "Programs" %}
+                            </a>
+                        </li>
+                    {% endif %}
+
                     {#               #}
                     {# Nutrition tab #}
                     {#               #}
+                    {% if 'nutrition' not in nav_hide %}
                     <li class="nav-item dropdown">
                         <a href="{% url 'nutrition:plan:overview' %}"
                            class="dropdown-toggle nav-link text-white {% if active_tab == 'nutrition' %}text-decoration-underline{% endif %}"
@@ -181,11 +195,13 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
 
 
                     {#            #}
                     {# Weight tab #}
                     {#            #}
+                    {% if 'weight' not in nav_hide %}
                     {% if user.is_authenticated %}
                         <li class="nav-item dropdown">
                             <a href="{% url 'weight:overview' %}"
@@ -204,11 +220,13 @@
                             </ul>
                         </li>
                     {% endif %}
+                    {% endif %}
 
 
                     {#              #}
                     {# Software tab #}
                     {#              #}
+                    {% if 'software' not in nav_hide %}
                     <li class="nav-item dropdown">
                         <a href=""
                            class="dropdown-toggle nav-link text-white {% if active_tab == 'software' %}text-decoration-underline{% endif %}"
@@ -255,6 +273,7 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
                 </ul>
 
 

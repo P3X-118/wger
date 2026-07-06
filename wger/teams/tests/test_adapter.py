@@ -121,3 +121,39 @@ class AdapterTeamsSyncTestCase(WgerTestCase):
                 self.adapter.pre_social_login(request, sociallogin)
         sync_admin.assert_called_once_with(self.user, sociallogin)
         sync_teams.assert_called_once_with(self.user, sociallogin)
+
+    def test_profile_names_synced_from_claims(self):
+        sociallogin = mock.Mock(
+            user=self.user,
+            is_existing=True,
+            account=mock.Mock(
+                extra_data={'userinfo': {'given_name': 'Jake', 'family_name': 'Prime'}}
+            ),
+        )
+        self.adapter._sync_profile(self.user, sociallogin)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Jake')
+        self.assertEqual(self.user.last_name, 'Prime')
+
+    def test_profile_name_fallback_split(self):
+        sociallogin = mock.Mock(
+            user=self.user,
+            is_existing=True,
+            account=mock.Mock(extra_data={'userinfo': {'name': 'Mike De La Cruz'}}),
+        )
+        self.adapter._sync_profile(self.user, sociallogin)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Mike')
+        self.assertEqual(self.user.last_name, 'De La Cruz')
+
+    def test_profile_untouched_without_name_claims(self):
+        self.user.first_name = 'Keep'
+        self.user.save()
+        sociallogin = mock.Mock(
+            user=self.user,
+            is_existing=True,
+            account=mock.Mock(extra_data={'userinfo': {}}),
+        )
+        self.adapter._sync_profile(self.user, sociallogin)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Keep')

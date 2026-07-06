@@ -1,0 +1,9 @@
+{% load i18n %}
+{% if data and data.2 is not None %}
+    <span class="badge {% if data.2 >= 80 %}text-bg-success{% elif data.2 >= 50 %}text-bg-warning{% else %}text-bg-danger{% endif %}"
+          title="{{ data.1 }}/{{ data.0 }} {% translate 'sessions vs plan' %}">
+        {{ data.2 }}%
+    </span>
+{% else %}
+    <span class="text-muted">-/-</span>
+{% endif %}

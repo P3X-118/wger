@@ -64,6 +64,16 @@ class BatchAssignmentForm(forms.Form):
         widget=forms.TextInput(attrs={'class': 'form-control'}),
     )
 
+    replace = forms.BooleanField(
+        label=_('Replace current programs'),
+        required=False,
+        help_text=_(
+            'Deactivate the targets\' previous programs and end their old '
+            'routines the day before the new start.'
+        ),
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+    )
+
     def __init__(self, *args, coach=None, teams=None, players=None, **kwargs):
         """
         coach:   whose template library to offer (public + own)

@@ -226,6 +226,21 @@ OIDC_TEAM_GROUP_PREFIX = env.str('OIDC_TEAM_GROUP_PREFIX', 'team-')
 OIDC_COACH_GROUPS = env.list('OIDC_COACH_GROUPS', default=[])
 # Facility gym auto-assigned to SSO users (enables wger's trainer login).
 TEAMS_DEFAULT_GYM = env.str('TEAMS_DEFAULT_GYM', '')
+# Per-player measurement categories auto-seeded at login ("Name|unit" CSV).
+# Deterministic names on purpose: external importers (HitTrax, TrackMan)
+# target categories by exact name.
+TEAMS_METRICS = env.list(
+    'TEAMS_METRICS',
+    default=['Exit Velo|mph', 'Throw Velo|mph', '60-Yard|s'],
+)
+# Authentik API roster pre-sync (manage.py teams-roster-sync): base URL of the
+# IdP and a read-only API token. Empty = command refuses to run.
+AUTHENTIK_SYNC_URL = env.str('AUTHENTIK_SYNC_URL', '')
+AUTHENTIK_SYNC_TOKEN = env.str('AUTHENTIK_SYNC_TOKEN', '')
+
+# Nav sections to hide (csv of: nutrition, weight, software), e.g. for a
+# focused training-only deployment.
+WGER_SETTINGS['NAV_HIDE'] = env.list('NAV_HIDE', default=[])
 
 #
 # Auth Proxy Authentication

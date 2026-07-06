@@ -609,6 +609,10 @@ WGER_SETTINGS = {
     # Teams seam (env-overridable in settings/main.py): OIDC-group-driven team
     # rosters, coach role and routine assignments. Off = stock wger behavior.
     'TEAMS_ENABLED': False,
+
+    # Nav sections to hide (list of: nutrition, weight, software). Empty =
+    # stock navigation. Env-overridable via NAV_HIDE in settings/main.py.
+    'NAV_HIDE': [],
 }
 
 #

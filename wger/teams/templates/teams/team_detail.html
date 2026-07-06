@@ -11,6 +11,7 @@
 
 {% block content %}
 <h4>{% translate "Roster" %}</h4>
+<div class="table-responsive">
 <table class="table table-hover align-middle">
     <thead>
     <tr>
@@ -19,9 +20,13 @@
                    title="{% translate 'Select all players' %}">
         </th>
         <th>{% translate "Player" %}</th>
-        <th>{% translate "Last login" %}</th>
-        <th>{% translate "Last workout" %}</th>
-        <th class="text-end">{% translate "Sessions (7 days)" %}</th>
+        <th class="d-none d-lg-table-cell">{% translate "Last login" %}</th>
+        <th class="d-none d-lg-table-cell">{% translate "Last workout" %}</th>
+        <th class="text-end">7d</th>
+        <th class="text-end">28d</th>
+        {% for name in metric_columns %}
+            <th class="text-end d-none d-md-table-cell">{{ name }}</th>
+        {% endfor %}
         <th class="text-end">{% translate "Programs" %}</th>
         <th></th>
     </tr>
@@ -34,20 +39,34 @@
                        name="players" value="{{ player.pk }}" form="assign-form">
             </td>
             <td>
-                {{ player.username }}
+                <a href="{% url 'teams:player' player.pk %}">
+                    {{ player.get_full_name|default:player.username }}
+                </a>
                 {% if player.get_full_name %}
-                    <small class="text-muted">{{ player.get_full_name }}</small>
+                    <small class="text-muted d-none d-md-inline">{{ player.username }}</small>
+                {% endif %}
+                {% if not player.last_login %}
+                    <span class="badge text-bg-warning">{% translate "Invited" %}</span>
                 {% endif %}
             </td>
-            <td>
-                {% if player.last_login %}
-                    {{ player.last_login|date }}
-                {% else %}
-                    <span class="badge text-bg-warning">{% translate "Never signed in" %}</span>
-                {% endif %}
+            <td class="d-none d-lg-table-cell">
+                {% if player.last_login %}{{ player.last_login|date }}{% else %}-/-{% endif %}
             </td>
-            <td>{% if player.last_session %}{{ player.last_session|date }}{% else %}-/-{% endif %}</td>
-            <td class="text-end">{{ player.sessions_7d }}</td>
+            <td class="d-none d-lg-table-cell">
+                {% if player.last_session %}{{ player.last_session|date }}{% else %}-/-{% endif %}
+            </td>
+            <td class="text-end">{% include "teams/partial_adherence_chip.html" with data=player.adh7 %}</td>
+            <td class="text-end">{% include "teams/partial_adherence_chip.html" with data=player.adh28 %}</td>
+            {% for measurement in player.metric_values %}
+                <td class="text-end d-none d-md-table-cell">
+                    {% if measurement %}
+                        {{ measurement.value }}
+                        <small class="text-muted" title="{{ measurement.date|date }}">{{ measurement.category.unit }}</small>
+                    {% else %}
+                        <span class="text-muted">-/-</span>
+                    {% endif %}
+                </td>
+            {% endfor %}
             <td class="text-end">{{ player.active_programs }}</td>
             <td class="text-end">
                 {% if trainer_login_possible and player.pk != user.pk %}
@@ -55,9 +74,9 @@
                           action="{% url 'core:user:trainer-login' player.pk %}"
                           class="d-inline">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-light btn-sm">
+                        <button type="submit" class="btn btn-light btn-sm"
+                                title="{% translate 'Log in as user' %}">
                             <span class="{% fa_class 'user-secret' %}"></span>
-                            {% translate "Log in as user" %}
                         </button>
                     </form>
                 {% endif %}
@@ -65,13 +84,14 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="7">
-                {% translate "No players yet. Players appear after their first sign-in with this team's group." %}
+            <td colspan="10">
+                {% translate "No players yet. Players appear after their first sign-in, or run the roster pre-sync." %}
             </td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
+</div>
 
 <h4>{% translate "Assign routines" %}</h4>
 <p class="text-muted mb-2">
@@ -87,10 +107,18 @@
             <div class="mb-2">
                 <label class="form-label" for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
                 {{ form.start }}
+                {% include "teams/partial_start_presets.html" %}
             </div>
             <div class="mb-2">
                 <label class="form-label" for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
                 {{ form.note }}
+            </div>
+            <div class="form-check mb-2">
+                {{ form.replace }}
+                <label class="form-check-label" for="{{ form.replace.id_for_label }}">
+                    {{ form.replace.label }}
+                </label>
+                <div class="form-text">{{ form.replace.help_text }}</div>
             </div>
             <button type="submit" class="btn btn-success">
                 <span class="{% fa_class 'plus' %}"></span>
@@ -198,7 +226,10 @@
 <h4>{% translate "Coaches" %}</h4>
 <ul class="list-unstyled">
     {% for coach in coaches %}
-        <li><span class="{% fa_class 'user' %}"></span> {{ coach.username }}</li>
+        <li>
+            <span class="{% fa_class 'user' %}"></span>
+            {{ coach.get_full_name|default:coach.username }}
+        </li>
     {% empty %}
         <li class="text-muted">{% translate "No coaches assigned to this team yet." %}</li>
     {% endfor %}

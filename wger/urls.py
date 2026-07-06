@@ -41,6 +41,7 @@ from rest_framework_simplejwt.views import (
 # wger
 from wger.core.api import views as core_api_views
 from wger.core.views.user import WgerLogoutView
+from wger.teams.views import TodayDashboardView
 from wger.exercises.api import views as exercises_api_views
 from wger.exercises.sitemap import ExercisesSitemap
 from wger.gallery.api import views as gallery_api_views
@@ -268,6 +269,10 @@ sitemaps = {
 # The actual URLs
 #
 urlpatterns = i18n_patterns(
+    # SGC: shadow the React dashboard with the teams "Today" banner variant.
+    # Must precede the core include (first match wins); reverse('core:dashboard')
+    # still resolves to this same path. No-op when TEAMS_ENABLED is off.
+    path('dashboard', TodayDashboardView.as_view(), name='today-dashboard'),
     path('', include(('wger.core.urls', 'core'), namespace='core')),
     path('routine/', include(('wger.manager.urls', 'manager'), namespace='manager')),
     path('exercise/', include(('wger.exercises.urls', 'exercise'), namespace='exercise')),

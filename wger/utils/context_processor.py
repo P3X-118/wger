@@ -46,6 +46,9 @@ def processor(request):
         # Teams seam (off => stock wger, no coach console in the nav)
         'teams_enabled': settings.WGER_SETTINGS.get('TEAMS_ENABLED', False),
 
+        # Nav sections hidden on this host (nutrition, weight, software)
+        'nav_hide': settings.WGER_SETTINGS.get('NAV_HIDE', []),
+
         # Languages
         'i18n_language': get_language_data(
             (get_language(), languages_dict.get(get_language(), ENGLISH_SHORT_NAME)),

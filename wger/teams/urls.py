@@ -23,6 +23,7 @@ urlpatterns = [
     path('', views.TeamsOverviewView.as_view(), name='overview'),
     path('assign/', views.assign_hub, name='assign-hub'),
     path('team/<int:pk>/', views.TeamDetailView.as_view(), name='detail'),
+    path('player/<int:user_pk>/', views.player_detail, name='player'),
     path('team/<int:team_pk>/assign', views.assignment_create, name='assign'),
     path('assignment/<int:pk>/toggle', views.assignment_toggle, name='assignment-toggle'),
     path('assignment/<int:pk>/delete', views.assignment_delete, name='assignment-delete'),

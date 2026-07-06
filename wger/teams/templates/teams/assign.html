@@ -62,10 +62,18 @@
                 <div class="col-6">
                     <label class="form-label" for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
                     {{ form.start }}
+                    {% include "teams/partial_start_presets.html" %}
                 </div>
                 <div class="col-6">
                     <label class="form-label" for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
                     {{ form.note }}
+                </div>
+                <div class="col-12 form-check ms-2">
+                    {{ form.replace }}
+                    <label class="form-check-label" for="{{ form.replace.id_for_label }}">
+                        {{ form.replace.label }}
+                    </label>
+                    <div class="form-text">{{ form.replace.help_text }}</div>
                 </div>
                 <div class="col-12">
                     <button type="submit" class="btn btn-success">

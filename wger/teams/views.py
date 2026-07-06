@@ -45,14 +45,29 @@ from django.views.generic import (
 )
 
 # wger
+from wger.core.views.react import ReactView
 from wger.gym.helpers import is_same_gym
 from wger.teams.forms import BatchAssignmentForm
 from wger.teams.models import (
+    AssignedRoutine,
     RoutineAssignment,
     Team,
     TeamMembership,
 )
-from wger.teams.services import materialize_many
+from wger.teams.services import (
+    latest_metrics,
+    materialize_many,
+    replace_active_assignments,
+    roster_adherence,
+)
+
+
+def _metric_names():
+    return [
+        spec.partition('|')[0].strip()
+        for spec in (getattr(settings, 'TEAMS_METRICS', []) or [])
+        if spec.partition('|')[0].strip()
+    ]
 
 
 logger = logging.getLogger(__name__)
@@ -182,9 +197,21 @@ class TeamDetailView(CoachAccessMixin, DetailView):
             .order_by('username')
         )
 
+        players = list(players)
+        adherence = roster_adherence(players)
+        metric_columns = _metric_names()[:2]
+        metrics = latest_metrics(players, metric_columns)
+        for player in players:
+            player.adh7 = adherence.get(player.pk, {}).get(7)
+            player.adh28 = adherence.get(player.pk, {}).get(28)
+            player.metric_values = [
+                metrics.get(player.pk, {}).get(name) for name in metric_columns
+            ]
+
         context.update(
             {
                 'players': players,
+                'metric_columns': metric_columns,
                 'coaches': User.objects.filter(
                     team_memberships__team=team,
                     team_memberships__is_coach=True,
@@ -287,11 +314,22 @@ def _create_batch(request, form, allowed_teams):
                 )
             )
 
+    replaced = 0
+    if form.cleaned_data.get('replace'):
+        replaced = replace_active_assignments(
+            teams=selected_teams,
+            players=list(User.objects.filter(pk__in=covered)) + direct_players,
+            exclude_ids=[assignment.pk for assignment in assignments],
+            new_start=form.cleaned_data['start'],
+        )
+
     copies = materialize_many(assignments)
     message = _('%(assignments)s assignments created, %(copies)s routines delivered.') % {
         'assignments': len(assignments),
         'copies': copies,
     }
+    if replaced:
+        message += ' ' + _('%(count)s previous programs replaced.') % {'count': replaced}
     if skipped:
         message += ' ' + _(
             '%(count)s player picks were already covered by a selected team.'
@@ -409,6 +447,100 @@ def assignment_delete(request, pk):
         _('Assignment deleted. Routines already in player accounts were kept.'),
     )
     return _redirect_back(request, assignment)
+
+
+class TodayDashboardView(ReactView):
+    """
+    The stock React dashboard with a server-side "Today" banner on top: the
+    player's team(s), their current assigned program and a direct start link.
+    Mounted over /dashboard when the teams feature is on (the React app itself
+    is untouched).
+    """
+
+    login_required = True
+    template_name = 'teams/dashboard.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        if not _teams_enabled() or not user.is_authenticated:
+            return context
+
+        today = timezone.localdate()
+        current = (
+            AssignedRoutine.objects.filter(
+                user=user,
+                assignment__active=True,
+                routine__isnull=False,
+                routine__start__lte=today,
+                routine__end__gte=today,
+            )
+            .select_related('routine')
+            .order_by('-routine__start')
+            .first()
+        )
+        upcoming = None
+        if current is None:
+            upcoming = (
+                AssignedRoutine.objects.filter(
+                    user=user,
+                    assignment__active=True,
+                    routine__isnull=False,
+                    routine__start__gt=today,
+                )
+                .select_related('routine')
+                .order_by('routine__start')
+                .first()
+            )
+
+        day_data = current.routine.data_for_day(today) if current else None
+        context.update(
+            {
+                'team_names': list(
+                    Team.objects.filter(
+                        memberships__user=user,
+                        is_active=True,
+                    ).values_list('name', flat=True)
+                ),
+                'today_routine': current.routine if current else None,
+                'upcoming_routine': upcoming.routine if upcoming else None,
+                'today_day': day_data.day if day_data else None,
+                'today_label': (day_data.label if day_data else '') or '',
+            }
+        )
+        return context
+
+
+@login_required
+def player_detail(request, user_pk):
+    """
+    Coach view of one player: program history, adherence and facility metrics.
+    """
+    _check_coach_or_403(request)
+    player = get_object_or_404(User, pk=user_pk)
+    is_my_player = TeamMembership.objects.filter(
+        user=player,
+        team__memberships__user=request.user,
+        team__memberships__is_coach=True,
+    ).exists()
+    if not (request.user.is_staff or request.user.is_superuser or is_my_player):
+        raise PermissionDenied()
+
+    metric_names = _metric_names()
+    player_metrics = latest_metrics([player], metric_names).get(player.pk, {})
+    context = {
+        'player': player,
+        'memberships': player.team_memberships.select_related('team'),
+        'instances': AssignedRoutine.objects.filter(user=player)
+        .select_related('routine', 'assignment__template', 'assignment__team')
+        .order_by('-copied_at'),
+        'adherence': roster_adherence([player]).get(player.pk, {}),
+        'metrics': [(name, player_metrics.get(name)) for name in metric_names],
+        'trainer_login_possible': (
+            request.user.has_perm('gym.gym_trainer') and player.pk != request.user.pk
+        ),
+    }
+    return render(request, 'teams/player_detail.html', context)
 
 
 def _switch_target_allowed(trainer, target):

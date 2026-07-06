@@ -25,8 +25,10 @@ from django.contrib.auth.models import (
     Permission,
     User,
 )
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.text import slugify
 
 # wger
@@ -35,13 +37,18 @@ from wger.gym.models import (
     GymAdminConfig,
     GymUserConfig,
 )
-from wger.manager.models import Routine
+from wger.manager.models import (
+    Routine,
+    WorkoutSession,
+)
+from wger.measurements.models import Category as MeasurementCategory
 from wger.teams.models import (
     AssignedRoutine,
     RoutineAssignment,
     Team,
     TeamMembership,
 )
+from wger.utils.cache import CacheKeyMapper
 
 
 logger = logging.getLogger(__name__)
@@ -330,10 +337,215 @@ def materialize_for_user(user: User) -> int:
     return copies
 
 
+def ensure_player_metrics(user: User) -> None:
+    """
+    Seed the facility's measurement categories ("Name|unit" specs from
+    TEAMS_METRICS) for a user. Names are deterministic on purpose: external
+    importers (HitTrax, TrackMan) target categories by exact name.
+    """
+    for spec in getattr(settings, 'TEAMS_METRICS', []) or []:
+        name, _, unit = spec.partition('|')
+        name = name.strip()[:100]
+        if not name:
+            continue
+        MeasurementCategory.objects.get_or_create(
+            user=user,
+            name=name,
+            defaults={'unit': unit.strip()[:30]},
+        )
+
+
 def sync_from_social_login(user: User, group_names: Iterable[str]) -> None:
     """
     Single entry point for the social-account adapter: mirror the claim, then
     heal this user's assignments.
     """
     sync_user_teams(user, group_names)
+    if TeamMembership.objects.filter(user=user).exists():
+        ensure_player_metrics(user)
     materialize_for_user(user)
+
+
+def roster_adherence(players, windows=(7, 28)):
+    """
+    Planned-vs-logged adherence per player over trailing windows (days).
+
+    Planned = distinct non-rest days of the player's active assigned routines
+    inside the window (via the cached Routine.date_sequence); logged = distinct
+    workout-session days. Returns {user_id: {window: (planned, logged, pct)}}
+    with pct None when nothing was planned.
+    """
+    players = list(players)
+    today = timezone.localdate()
+    max_window = max(windows)
+    window_start = today - datetime.timedelta(days=max_window - 1)
+
+    sessions = WorkoutSession.objects.filter(
+        user__in=players,
+        date__gte=window_start,
+        date__lte=today,
+    ).values_list('user_id', 'date')
+    logged: dict[int, set] = {}
+    for user_id, session_date in sessions:
+        logged.setdefault(user_id, set()).add(session_date)
+
+    instances = AssignedRoutine.objects.filter(
+        user__in=players,
+        assignment__active=True,
+        routine__isnull=False,
+    ).select_related('routine')
+    planned: dict[int, set] = {}
+    for instance in instances:
+        routine = instance.routine
+        if routine.start > today or routine.end < window_start:
+            continue
+        for day_data in routine.date_sequence:
+            if (
+                window_start <= day_data.date <= today
+                and day_data.day is not None
+                and not day_data.day.is_rest
+            ):
+                planned.setdefault(instance.user_id, set()).add(day_data.date)
+
+    result = {}
+    for player in players:
+        per_window = {}
+        for window in windows:
+            start = today - datetime.timedelta(days=window - 1)
+            planned_days = {d for d in planned.get(player.pk, ()) if d >= start}
+            logged_days = {d for d in logged.get(player.pk, ()) if d >= start}
+            pct = None
+            if planned_days:
+                pct = min(100, round(100 * len(logged_days) / len(planned_days)))
+            per_window[window] = (len(planned_days), len(logged_days), pct)
+        result[player.pk] = per_window
+    return result
+
+
+def latest_metrics(players, names):
+    """
+    Latest measurement per (player, category name).
+    Returns {user_id: {name: measurement}}.
+    """
+    # wger
+    from wger.measurements.models import Measurement
+
+    result: dict[int, dict] = {}
+    measurements = (
+        Measurement.objects.filter(
+            category__user__in=players,
+            category__name__in=names,
+        )
+        .select_related('category')
+        .order_by('category__user_id', 'category__name', '-date')
+    )
+    for measurement in measurements:
+        per_user = result.setdefault(measurement.category.user_id, {})
+        per_user.setdefault(measurement.category.name, measurement)
+    return result
+
+
+def replace_active_assignments(teams, players, exclude_ids, new_start) -> int:
+    """
+    "Replace current programs": deactivate previous active assignments at the
+    same scope and trim their routine copies so the new program takes over.
+
+    Scope = assignments targeting any of ``teams``, or targeting any of
+    ``players`` individually. Copies are never deleted (logs survive); their
+    end date is pulled back to the day before ``new_start`` (never before
+    their own start).
+    """
+    previous = (
+        RoutineAssignment.objects.filter(active=True)
+        .filter(Q(team__in=list(teams)) | Q(user__in=list(players)))
+        .exclude(pk__in=exclude_ids)
+    )
+    replaced = 0
+    for assignment in previous:
+        assignment.active = False
+        assignment.save(update_fields=['active'])
+        replaced += 1
+        for instance in assignment.instances.select_related('routine'):
+            routine = instance.routine
+            if routine is None or routine.end < new_start:
+                continue
+            routine.end = max(routine.start, new_start - datetime.timedelta(days=1))
+            routine.save(update_fields=['end'])
+            cache.delete(CacheKeyMapper.routine_date_sequence_key(routine.id))
+    if replaced:
+        logger.info('teams: replaced %s active assignments (new start %s)', replaced, new_start)
+    return replaced
+
+
+def apply_roster_snapshot(snapshot) -> dict:
+    """
+    Apply an IdP roster snapshot (from manage.py teams-roster-sync) so coaches
+    see players who have never signed in.
+
+    snapshot = {
+        'teams': {group_name: [member, ...]},   # member: username/email/name
+        'coaches': {username, ...},
+    }
+    Authoritative for the teams it contains: memberships are added AND removed.
+    Never deletes users; login-time claim sync remains the fast path.
+    """
+    prefix = getattr(settings, 'OIDC_TEAM_GROUP_PREFIX', 'team-')
+    stats = {'users_created': 0, 'memberships': 0, 'removed': 0, 'copies': 0}
+    coaches = set(snapshot.get('coaches', ()))
+    synced_users = []
+
+    for group_name, members in snapshot.get('teams', {}).items():
+        display_name = (group_name[len(prefix):] or group_name)[:60]
+        team = Team.objects.filter(authentik_group=group_name).first()
+        if team is None:
+            team = Team.objects.create(
+                authentik_group=group_name,
+                slug=_unique_team_slug(display_name),
+                name=display_name,
+            )
+
+        member_users = []
+        for member in members:
+            username = member['username']
+            user = User.objects.filter(username=username).first()
+            if user is None:
+                name = (member.get('name') or '').strip()
+                first, _, last = name.partition(' ')
+                user = User.objects.create_user(
+                    username,
+                    member.get('email') or '',
+                )
+                user.first_name = first.strip()[:150]
+                user.last_name = last.strip()[:150]
+                user.set_unusable_password()
+                user.save()
+                stats['users_created'] += 1
+            member_users.append(user)
+
+        for user in member_users:
+            is_coach = user.username in coaches
+            membership, created = TeamMembership.objects.get_or_create(
+                team=team,
+                user=user,
+                defaults={'is_coach': is_coach},
+            )
+            if created:
+                stats['memberships'] += 1
+            if membership.is_coach != is_coach:
+                membership.is_coach = is_coach
+                membership.save(update_fields=['is_coach'])
+            _sync_trainer_group(user, is_coach)
+            _ensure_default_gym(user, is_coach)
+            if not is_coach:
+                ensure_player_metrics(user)
+            synced_users.append(user)
+
+        removed = TeamMembership.objects.filter(team=team).exclude(
+            user__in=member_users,
+        )
+        stats['removed'] += removed.count()
+        removed.delete()
+
+    for user in synced_users:
+        stats['copies'] += materialize_for_user(user)
+    return stats

@@ -411,3 +411,107 @@ class PlayerSwitchingTestCase(TeamsViewsBase):
         self.assertContains(
             response, reverse('teams:switch-player', kwargs={'user_pk': self.player2.pk})
         )
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class TodayBannerTestCase(TeamsViewsBase):
+    def _materialize_for_player(self):
+        # wger
+        from wger.teams.services import materialize_assignment
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team_a,
+            start=datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+
+    def test_player_with_program_sees_banner(self):
+        self._materialize_for_player()
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, 'Start today')
+        self.assertContains(response, self.template.name)
+        self.assertContains(response, 'Alpha')
+
+    def test_no_banner_without_program(self):
+        self.login(self.player2)
+        # player2 has no assignment yet
+        RoutineAssignment.objects.all().delete()
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertNotContains(response, 'Start today')
+
+    def test_programs_nav_link_present(self):
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, reverse('manager:template:public'))
+
+
+class TodayBannerDisabledTestCase(TeamsViewsBase):
+    def test_dashboard_stock_when_disabled(self):
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Start today')
+
+
+@override_settings(
+    WGER_SETTINGS=_wger_settings(
+        TEAMS_ENABLED=True, NAV_HIDE=['nutrition', 'weight', 'software']
+    )
+)
+class NavHideTestCase(TeamsViewsBase):
+    def test_hidden_sections_absent(self):
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertNotContains(response, 'Nutrition plans')
+        self.assertNotContains(response, 'Body weight')
+        self.assertNotContains(response, 'About this software')
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class NavDefaultSectionsTestCase(TeamsViewsBase):
+    def test_stock_sections_present_by_default(self):
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, 'Nutrition plans')
+        self.assertContains(response, 'About this software')
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class PlayerDetailViewTestCase(TeamsViewsBase):
+    def _url(self, user=None):
+        return reverse('teams:player', kwargs={'user_pk': (user or self.player).pk})
+
+    def test_coach_sees_player_page(self):
+        # wger
+        from wger.teams.services import materialize_assignment
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team_a,
+            start=datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+
+        self.login(self.coach)
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.template.name)
+        self.assertContains(response, 'Adherence')
+
+    def test_foreign_coach_blocked(self):
+        coach2 = User.objects.create_user('coach2', 'c2@example.com', 'pw')
+        coach2.groups.add(Group.objects.get(name='gym_trainer'))
+        TeamMembership.objects.create(team=self.team_b, user=coach2, is_coach=True)
+
+        self.login(coach2)
+        self.assertEqual(self.client.get(self._url()).status_code, 403)
+
+    def test_player_blocked(self):
+        self.login(self.player)
+        self.assertEqual(self.client.get(self._url(self.player2)).status_code, 403)
+
+    def test_staff_allowed(self):
+        self.user_login('admin')
+        self.assertEqual(self.client.get(self._url()).status_code, 200)

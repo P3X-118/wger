@@ -1,0 +1,39 @@
+{% extends "react/react-page.html" %}
+{% load i18n %}
+
+{% block content %}
+    {% if today_routine or upcoming_routine %}
+        <div class="card border-success mb-3 mt-2">
+            <div class="card-body py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div>
+                    {% if team_names %}
+                        <div class="text-muted small">{{ team_names|join:" · " }}</div>
+                    {% endif %}
+                    {% if today_routine %}
+                        <strong>{% translate "Today" %}:</strong>
+                        {{ today_routine.name }}
+                        {% if today_day %}
+                            &mdash; {{ today_day.name }}
+                            {% if today_day.is_rest %}
+                                <span class="badge text-bg-secondary">{% translate "Rest day" %}</span>
+                            {% endif %}
+                        {% elif today_label %}
+                            &mdash; {{ today_label }}
+                        {% endif %}
+                    {% else %}
+                        <strong>{{ upcoming_routine.name }}</strong>
+                        {% blocktranslate with start=upcoming_routine.start trimmed %}
+                            starts {{ start }}
+                        {% endblocktranslate %}
+                    {% endif %}
+                </div>
+                {% if today_routine %}
+                    <a href="{{ today_routine.get_absolute_url }}" class="btn btn-success">
+                        {% translate "Start today's workout" %}
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}
