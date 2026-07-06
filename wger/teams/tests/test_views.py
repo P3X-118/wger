@@ -468,6 +468,15 @@ class NavHideTestCase(TeamsViewsBase):
         self.assertNotContains(response, 'Body weight')
         self.assertNotContains(response, 'About this software')
 
+    def test_partial_hide_keeps_other_sections(self):
+        with override_settings(
+            WGER_SETTINGS=_wger_settings(TEAMS_ENABLED=True, NAV_HIDE=['nutrition'])
+        ):
+            self.login(self.player)
+            response = self.client.get(reverse('core:dashboard'))
+            self.assertNotContains(response, 'Nutrition plans')
+            self.assertContains(response, 'About this software')
+
 
 @override_settings(WGER_SETTINGS=TEAMS_ON)
 class NavDefaultSectionsTestCase(TeamsViewsBase):

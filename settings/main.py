@@ -223,7 +223,7 @@ WGER_SETTINGS['TEAMS_ENABLED'] = env.bool('TEAMS_ENABLED', False)
 # Group names matching this prefix in the OIDC 'groups' claim become teams.
 OIDC_TEAM_GROUP_PREFIX = env.str('OIDC_TEAM_GROUP_PREFIX', 'team-')
 # Members of any of these claim groups become coaches (wger gym trainers).
-OIDC_COACH_GROUPS = env.list('OIDC_COACH_GROUPS', default=[])
+OIDC_COACH_GROUPS = [s.strip() for s in env.list('OIDC_COACH_GROUPS', default=[]) if s.strip()]
 # Facility gym auto-assigned to SSO users (enables wger's trainer login).
 TEAMS_DEFAULT_GYM = env.str('TEAMS_DEFAULT_GYM', '')
 # Per-player measurement categories auto-seeded at login ("Name|unit" CSV).
@@ -239,8 +239,9 @@ AUTHENTIK_SYNC_URL = env.str('AUTHENTIK_SYNC_URL', '')
 AUTHENTIK_SYNC_TOKEN = env.str('AUTHENTIK_SYNC_TOKEN', '')
 
 # Nav sections to hide (csv of: nutrition, weight, software), e.g. for a
-# focused training-only deployment.
-WGER_SETTINGS['NAV_HIDE'] = env.list('NAV_HIDE', default=[])
+# focused training-only deployment. Strip: env.list keeps whitespace after
+# commas, so "a, b" would yield [' b'] and silently not match.
+WGER_SETTINGS['NAV_HIDE'] = [s.strip() for s in env.list('NAV_HIDE', default=[]) if s.strip()]
 
 #
 # Auth Proxy Authentication
