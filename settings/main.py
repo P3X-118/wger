@@ -237,6 +237,9 @@ TEAMS_METRICS = env.list(
 # IdP and a read-only API token. Empty = command refuses to run.
 AUTHENTIK_SYNC_URL = env.str('AUTHENTIK_SYNC_URL', '')
 AUTHENTIK_SYNC_TOKEN = env.str('AUTHENTIK_SYNC_TOKEN', '')
+# Workout mode: default rest between sets (seconds) when a slot entry has no
+# explicit rest config.
+WORKOUT_REST_DEFAULT = env.int('WORKOUT_REST_DEFAULT', 90)
 
 # Nav sections to hide (csv of: nutrition, weight, software), e.g. for a
 # focused training-only deployment. Strip: env.list keeps whitespace after

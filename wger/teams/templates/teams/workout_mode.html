@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% load i18n static wger_extras django_bootstrap_breadcrumbs %}
+
+{% block title %}{{ routine.name }}{% endblock %}
+
+{% block breadcrumbs %}
+    {{ block.super }}
+    {% breadcrumb_raw routine "train:mode" routine.pk %}
+{% endblock %}
+
+{% block content %}
+{% if not has_day %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h4>{% translate "No workout scheduled today" %}</h4>
+            <p class="text-muted">
+                {% blocktranslate with start=routine.start end=routine.end trimmed %}
+                    This program runs {{ start }} – {{ end }}.
+                {% endblocktranslate %}
+            </p>
+            <a href="{{ routine.get_absolute_url }}" class="btn btn-light">
+                {% translate "View program" %}
+            </a>
+        </div>
+    </div>
+{% elif is_rest %}
+    <div class="card border-success">
+        <div class="card-body text-center py-5">
+            <h4>{% translate "Rest day" %}</h4>
+            <p class="text-muted">{% translate "Recover well — your next session will thank you." %}</p>
+            <a href="{{ routine.get_absolute_url }}" class="btn btn-light">
+                {% translate "View program" %}
+            </a>
+        </div>
+    </div>
+{% else %}
+    <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+        {% if day_name %}<span class="badge text-bg-danger">{{ day_name }}</span>{% endif %}
+        {% if day_label %}<span class="badge text-bg-secondary">{{ day_label }}</span>{% endif %}
+        <span class="text-muted small">{{ target_date|date }}</span>
+    </div>
+
+    {% for slot in slots_render %}
+        <div class="card mb-3">
+            <div class="card-body">
+                {% if slot.is_superset %}
+                    <span class="badge text-bg-info float-end">{% translate "Superset" %}</span>
+                {% endif %}
+                {% if slot.comment %}
+                    <div class="text-muted small mb-1">{{ slot.comment }}</div>
+                {% endif %}
+                {% for entry in slot.entries %}
+                    <div class="wm-entry py-3 {% if not forloop.first %}border-top{% endif %}"
+                         data-slot-entry="{{ entry.slot_entry_id }}"
+                         data-exercise="{{ entry.exercise_id }}"
+                         data-sets="{{ entry.sets }}"
+                         data-reps="{{ entry.reps|default_if_none:'' }}"
+                         data-reps-unit="{{ entry.reps_unit_id|default_if_none:'' }}"
+                         data-is-seconds="{% if entry.is_seconds %}1{% endif %}"
+                         data-weight="{{ entry.weight|default_if_none:'' }}"
+                         data-weight-unit="{{ entry.weight_unit_id|default_if_none:'' }}"
+                         data-rest="{{ entry.rest|default_if_none:'' }}">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                            <div>
+                                <strong>{{ entry.name }}</strong>
+                                <div class="text-muted small">{{ entry.text_repr }}</div>
+                                <div class="wm-circles mt-2"></div>
+                            </div>
+                            <div class="text-end">
+                                {% if not entry.is_seconds %}
+                                    <div class="input-group input-group-sm mb-2 wm-stepper"
+                                         style="width: 10.5rem;">
+                                        <button class="btn btn-outline-secondary wm-minus"
+                                                type="button">&minus;</button>
+                                        <input type="number" inputmode="numeric" min="0"
+                                               class="form-control text-center wm-reps"
+                                               value="{{ entry.reps|default_if_none:10 }}">
+                                        <span class="input-group-text">
+                                            {{ entry.reps_unit|default:_("reps") }}
+                                        </span>
+                                        <button class="btn btn-outline-secondary wm-plus"
+                                                type="button">+</button>
+                                    </div>
+                                {% endif %}
+                                {% if entry.weight %}
+                                    <div class="text-muted small mb-1">
+                                        {{ entry.weight }} {{ entry.weight_unit }}
+                                    </div>
+                                {% endif %}
+                                <button type="button" class="btn btn-success wm-log">
+                                    <span class="wm-log-label">
+                                        {% if entry.is_seconds %}
+                                            {% blocktranslate with secs=entry.reps trimmed %}Start {{ secs }}s{% endblocktranslate %}
+                                        {% else %}
+                                            {% translate "Log set" %}
+                                        {% endif %}
+                                    </span>
+                                    <span class="wm-log-count badge text-bg-light ms-1"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+
+    {# Sticky session bar #}
+    <div id="wm-bar" class="fixed-bottom border-top py-2"
+         style="background: var(--bs-body-bg); z-index: 1030;">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <strong id="wm-progress">0 / {{ total_sets }}</strong>
+                <span class="text-muted">{% translate "sets" %}</span>
+                <span class="text-muted ms-2" id="wm-clock">00:00</span>
+            </div>
+            <button type="button" id="wm-finish-btn" class="btn btn-danger" disabled>
+                {% translate "Finish workout" %}
+            </button>
+        </div>
+    </div>
+    <div style="height: 4.5rem;"></div>
+
+    {# Rest overlay #}
+    <div id="wm-rest" class="d-none position-fixed top-0 start-0 w-100 h-100 text-center"
+         style="background: rgba(0,0,0,.88); z-index: 1050;">
+        <div class="d-flex flex-column justify-content-center align-items-center h-100">
+            <div class="text-muted text-uppercase">{% translate "Rest" %}</div>
+            <div id="wm-rest-clock" class="display-1 fw-bold text-white">90</div>
+            <div class="text-muted mb-3" id="wm-rest-next"></div>
+            <div>
+                <button type="button" class="btn btn-outline-light me-2" id="wm-rest-plus">
+                    +15s
+                </button>
+                <button type="button" class="btn btn-success" id="wm-rest-skip">
+                    {% translate "Skip" %}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Finish overlay #}
+    <div id="wm-finish" class="d-none position-fixed top-0 start-0 w-100 h-100"
+         style="background: rgba(0,0,0,.88); z-index: 1050; overflow-y: auto;">
+        <div class="container d-flex flex-column justify-content-center align-items-center h-100">
+            <div class="card" style="max-width: 26rem; width: 100%;">
+                <div class="card-body text-center" id="wm-finish-form">
+                    <h4>{% translate "How did it go?" %}</h4>
+                    <div class="my-3 d-flex justify-content-center gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-lg wm-impression"
+                                data-impression="1">&#128533;</button>
+                        <button type="button" class="btn btn-outline-secondary btn-lg wm-impression"
+                                data-impression="2">&#128528;</button>
+                        <button type="button" class="btn btn-outline-secondary btn-lg wm-impression"
+                                data-impression="3">&#128170;</button>
+                    </div>
+                    <textarea id="wm-notes" class="form-control mb-3" rows="2"
+                              placeholder="{% translate 'Notes (optional)' %}"></textarea>
+                    <button type="button" id="wm-save" class="btn btn-success w-100">
+                        {% translate "Save & finish" %}
+                    </button>
+                    <button type="button" id="wm-cancel-finish" class="btn btn-link w-100">
+                        {% translate "Keep training" %}
+                    </button>
+                </div>
+                <div class="card-body text-center d-none" id="wm-finish-done">
+                    <h4>{% translate "Session saved" %}</h4>
+                    <p class="text-muted" id="wm-summary"></p>
+                    <a href="{{ log_meta.routine_url }}" class="btn btn-light w-100 mb-2">
+                        {% translate "View program & logs" %}
+                    </a>
+                    <a href="{{ log_meta.dashboard_url }}" class="btn btn-success w-100">
+                        {% translate "Back to dashboard" %}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+{{ log_meta|json_script:"wm-meta" }}
+{% if has_day and not is_rest %}
+<script>
+(function () {
+    'use strict';
+    const META = JSON.parse(document.getElementById('wm-meta').textContent);
+    const $ = (sel, root) => (root || document).querySelector(sel);
+    const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+    // --- API helpers ------------------------------------------------------
+    const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+    async function api(method, url, body) {
+        const resp = await fetch(url, {
+            method: method,
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf(),
+                'Accept': 'application/json',
+            },
+            body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        let data = null;
+        try { data = await resp.json(); } catch (e) { /* empty body */ }
+        return { ok: resp.ok, status: resp.status, data: data };
+    }
+
+    let sessionId = null;
+    let sessionStart = null;
+    let finished = false;
+    async function ensureSession() {
+        if (sessionId) return sessionId;
+        sessionStart = sessionStart || new Date();
+        const created = await api('POST', META.session_url, {
+            date: META.date, routine: META.routine, day: META.day, impression: '2',
+        });
+        if (created.ok) {
+            sessionId = created.data.id;
+        } else {
+            // unique (date, user, routine): the session already exists — find it
+            const list = await api('GET', META.session_url + '?format=json&limit=100');
+            const hit = ((list.data || {}).results || []).find(
+                s => s.date === META.date && s.routine === META.routine
+            );
+            if (!hit) throw new Error('session create failed: ' + created.status);
+            sessionId = hit.id;
+        }
+        return sessionId;
+    }
+
+    // --- sound / vibration / wake lock ------------------------------------
+    let audioCtx = null;
+    function beep(freq, when, duration) {
+        try {
+            audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.frequency.value = freq;
+            gain.gain.value = 0.08;
+            osc.start(audioCtx.currentTime + when);
+            osc.stop(audioCtx.currentTime + when + duration);
+        } catch (e) { /* no audio available */ }
+    }
+    const chime = () => { beep(880, 0, 0.12); beep(880, 0.2, 0.12); navigator.vibrate && navigator.vibrate(200); };
+
+    let wakeLock = null;
+    async function keepAwake() {
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* unsupported */ }
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && wakeLock !== null) keepAwake();
+    });
+    document.addEventListener('pointerdown', function once() {
+        keepAwake();
+        document.removeEventListener('pointerdown', once);
+    });
+
+    // --- session clock + progress ------------------------------------------
+    const totalSets = $$('.wm-entry').reduce((n, el) => n + (+el.dataset.sets || 1), 0);
+    let loggedSets = 0;
+    const fmt = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    setInterval(() => {
+        if (sessionStart && !finished) {
+            $('#wm-clock').textContent = fmt(Math.floor((new Date() - sessionStart) / 1000));
+        }
+    }, 1000);
+    function bumpProgress() {
+        loggedSets += 1;
+        $('#wm-progress').textContent = loggedSets + ' / ' + totalSets;
+        $('#wm-finish-btn').disabled = false;
+    }
+
+    // --- rest timer ----------------------------------------------------------
+    let restTimer = null;
+    function startRest(seconds, nextLabel) {
+        let remaining = Math.max(5, Math.round(seconds));
+        const overlay = $('#wm-rest');
+        $('#wm-rest-next').textContent = nextLabel || '';
+        $('#wm-rest-clock').textContent = remaining;
+        overlay.classList.remove('d-none');
+        clearInterval(restTimer);
+        restTimer = setInterval(() => {
+            remaining -= 1;
+            $('#wm-rest-clock').textContent = Math.max(0, remaining);
+            if (remaining <= 0) { endRest(); chime(); }
+        }, 1000);
+    }
+    function endRest() {
+        clearInterval(restTimer);
+        $('#wm-rest').classList.add('d-none');
+    }
+    $('#wm-rest-skip').addEventListener('click', endRest);
+    $('#wm-rest-plus').addEventListener('click', () => {
+        const el = $('#wm-rest-clock');
+        el.textContent = (+el.textContent || 0) + 15;
+        // restart interval against the bumped value
+        let remaining = +el.textContent;
+        clearInterval(restTimer);
+        restTimer = setInterval(() => {
+            remaining -= 1;
+            el.textContent = Math.max(0, remaining);
+            if (remaining <= 0) { endRest(); chime(); }
+        }, 1000);
+    });
+
+    // --- per-entry wiring ----------------------------------------------------
+    const queue = { chain: Promise.resolve() };
+    function enqueue(job) {
+        queue.chain = queue.chain.then(job).catch(() => {});
+        return queue.chain;
+    }
+
+    $$('.wm-entry').forEach(entryEl => {
+        const entry = {
+            slotEntryId: +entryEl.dataset.slotEntry,
+            exerciseId: +entryEl.dataset.exercise,
+            total: +entryEl.dataset.sets || 1,
+            targetReps: entryEl.dataset.reps === '' ? null : +entryEl.dataset.reps,
+            repsUnit: entryEl.dataset.repsUnit === '' ? null : +entryEl.dataset.repsUnit,
+            isSeconds: entryEl.dataset.isSeconds === '1',
+            weight: entryEl.dataset.weight === '' ? null : +entryEl.dataset.weight,
+            weightUnit: entryEl.dataset.weightUnit === '' ? null : +entryEl.dataset.weightUnit,
+            rest: entryEl.dataset.rest === '' ? null : +entryEl.dataset.rest,
+            done: 0,
+        };
+        const circles = $('.wm-circles', entryEl);
+        for (let i = 0; i < entry.total; i++) {
+            const dot = document.createElement('span');
+            dot.className = 'wm-dot d-inline-block rounded-circle me-1 border';
+            dot.style.cssText = 'width:1rem;height:1rem;vertical-align:middle;';
+            circles.appendChild(dot);
+        }
+        const logBtn = $('.wm-log', entryEl);
+        const countBadge = $('.wm-log-count', entryEl);
+        const repsInput = $('.wm-reps', entryEl);
+        countBadge.textContent = '1/' + entry.total;
+
+        const minus = $('.wm-minus', entryEl);
+        const plus = $('.wm-plus', entryEl);
+        if (minus) minus.addEventListener('click', () => { repsInput.value = Math.max(0, (+repsInput.value || 0) - 1); });
+        if (plus) plus.addEventListener('click', () => { repsInput.value = (+repsInput.value || 0) + 1; });
+
+        async function postLog(actualReps) {
+            await ensureSession();
+            const body = {
+                date: new Date().toISOString(),
+                session: sessionId,
+                routine: META.routine,
+                iteration: META.iteration,
+                slot_entry: entry.slotEntryId,
+                exercise: entry.exerciseId,
+                repetitions: actualReps,
+            };
+            if (entry.targetReps !== null) body.repetitions_target = entry.targetReps;
+            if (entry.repsUnit !== null) body.repetitions_unit = entry.repsUnit;
+            if (entry.weight !== null) {
+                body.weight = entry.weight;
+                body.weight_target = entry.weight;
+            }
+            if (entry.weightUnit !== null) body.weight_unit = entry.weightUnit;
+            if (entry.rest !== null) body.rest_target = entry.rest;
+            const resp = await api('POST', META.log_url, body);
+            if (!resp.ok) throw new Error('log failed ' + resp.status);
+        }
+
+        function completeSet(actualReps) {
+            logBtn.disabled = true;
+            enqueue(() => postLog(actualReps)).then(() => {
+                entry.done += 1;
+                bumpProgress();
+                circles.children[entry.done - 1].classList.add('bg-success', 'border-success');
+                if (entry.done >= entry.total) {
+                    logBtn.classList.remove('btn-success');
+                    logBtn.classList.add('btn-outline-success');
+                    $('.wm-log-label', entryEl).textContent = '✓';
+                    countBadge.textContent = entry.total + '/' + entry.total;
+                    logBtn.disabled = true;
+                } else {
+                    countBadge.textContent = (entry.done + 1) + '/' + entry.total;
+                    logBtn.disabled = false;
+                }
+                if (loggedSets < totalSets) {
+                    startRest(entry.rest || META.rest_default, entryEl.querySelector('strong').textContent);
+                }
+            }).catch(() => {
+                logBtn.disabled = false;
+                logBtn.classList.add('btn-warning');
+                setTimeout(() => logBtn.classList.remove('btn-warning'), 1500);
+            });
+        }
+
+        if (entry.isSeconds) {
+            // Timed set: countdown on the button, auto-log at zero, early tap
+            // stops and logs the elapsed seconds.
+            let running = null;
+            const label = $('.wm-log-label', entryEl);
+            const initial = label.textContent;
+            logBtn.addEventListener('click', () => {
+                if (running) {
+                    const elapsed = Math.max(1, Math.round((new Date() - running) / 1000));
+                    running = null;
+                    label.textContent = initial;
+                    completeSet(elapsed);
+                    return;
+                }
+                let remaining = entry.targetReps || 30;
+                running = new Date();
+                beep(660, 0, 0.1);
+                const tick = setInterval(() => {
+                    if (!running) { clearInterval(tick); return; }
+                    remaining -= 1;
+                    label.textContent = remaining + 's';
+                    if (remaining <= 0) {
+                        clearInterval(tick);
+                        running = null;
+                        label.textContent = initial;
+                        chime();
+                        completeSet(entry.targetReps || 30);
+                    }
+                }, 1000);
+                label.textContent = remaining + 's';
+            });
+        } else {
+            logBtn.addEventListener('click', () => {
+                completeSet(+repsInput.value || 0);
+            });
+        }
+    });
+
+    // --- finish flow ---------------------------------------------------------
+    let impression = '2';
+    $$('.wm-impression').forEach(btn => btn.addEventListener('click', () => {
+        impression = btn.dataset.impression;
+        $$('.wm-impression').forEach(b => b.classList.remove('btn-success'));
+        btn.classList.add('btn-success');
+    }));
+    $('#wm-finish-btn').addEventListener('click', () => $('#wm-finish').classList.remove('d-none'));
+    $('#wm-cancel-finish').addEventListener('click', () => $('#wm-finish').classList.add('d-none'));
+    $('#wm-save').addEventListener('click', async () => {
+        $('#wm-save').disabled = true;
+        try {
+            await ensureSession();
+            const hms = d => d.toTimeString().slice(0, 8);
+            const patch = {
+                impression: impression,
+                time_start: hms(sessionStart || new Date()),
+                time_end: hms(new Date()),
+            };
+            const notes = $('#wm-notes').value.trim();
+            if (notes) patch.notes = notes;
+            const resp = await api('PATCH', META.session_url + sessionId + '/', patch);
+            if (!resp.ok) throw new Error('save failed');
+            finished = true;
+            if (wakeLock) { try { wakeLock.release(); } catch (e) {} }
+            $('#wm-summary').textContent =
+                loggedSets + ' / ' + totalSets + ' sets · ' + $('#wm-clock').textContent;
+            $('#wm-finish-form').classList.add('d-none');
+            $('#wm-finish-done').classList.remove('d-none');
+        } catch (e) {
+            $('#wm-save').disabled = false;
+        }
+    });
+
+    window.addEventListener('beforeunload', event => {
+        if (loggedSets > 0 && !finished) {
+            event.preventDefault();
+            event.returnValue = '';
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

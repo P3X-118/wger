@@ -28,9 +28,13 @@
                     {% endif %}
                 </div>
                 {% if today_routine %}
-                    <a href="{{ today_routine.get_absolute_url }}" class="btn btn-success">
-                        {% translate "Start today's workout" %}
-                    </a>
+                    <span>
+                        <a href="{% url 'train:mode' today_routine.pk %}" class="btn btn-success">
+                            {% translate "Start today's workout" %}
+                        </a>
+                        <a href="{{ today_routine.get_absolute_url }}"
+                           class="btn btn-link btn-sm">{% translate "Details" %}</a>
+                    </span>
                 {% endif %}
             </div>
         </div>

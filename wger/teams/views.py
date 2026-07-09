@@ -42,11 +42,13 @@ from django.views.decorators.http import require_POST
 from django.views.generic import (
     DetailView,
     ListView,
+    TemplateView,
 )
 
 # wger
 from wger.core.views.react import ReactView
 from wger.gym.helpers import is_same_gym
+from wger.manager.models import Routine
 from wger.teams.forms import BatchAssignmentForm
 from wger.teams.models import (
     AssignedRoutine,
@@ -201,6 +203,13 @@ class TeamDetailView(CoachAccessMixin, DetailView):
         adherence = roster_adherence(players)
         metric_columns = _metric_names()[:2]
         metrics = latest_metrics(players, metric_columns)
+        # only show metric columns somebody has data for (velo columns full of
+        # -/- just waste roster width until HitTrax/TrackMan or manual entry)
+        metric_columns = [
+            name
+            for name in metric_columns
+            if any(metrics.get(player.pk, {}).get(name) for player in players)
+        ]
         for player in players:
             player.adh7 = adherence.get(player.pk, {}).get(7)
             player.adh28 = adherence.get(player.pk, {}).get(28)
@@ -506,6 +515,138 @@ class TodayDashboardView(ReactView):
                 'upcoming_routine': upcoming.routine if upcoming else None,
                 'today_day': day_data.day if day_data else None,
                 'today_label': (day_data.label if day_data else '') or '',
+            }
+        )
+        return context
+
+
+class WorkoutModeView(LoginRequiredMixin, TemplateView):
+    """
+    Guided workout execution ("cage mode"): set counters, rep steppers and
+    automatic rest timers for today's day of one of the user's own routines.
+
+    The day payload is produced server-side by the SAME serializer the native
+    React gym mode consumes (WorkoutDayDataGymModeSerializer on
+    routine.data_for_day), so computed sets/reps/weight/rest match wger
+    exactly; logging goes through wger's own REST API, so sessions and logs
+    are native (adherence, coach views and statistics all pick them up).
+    """
+
+    template_name = 'teams/workout_mode.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _teams_enabled():
+            raise PermissionDenied()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        # wger
+        from wger.core.models import (
+            RepetitionUnit,
+            WeightUnit,
+        )
+        from wger.exercises.models import Exercise
+        from wger.manager.api.serializers import WorkoutDayDataGymModeSerializer
+
+        context = super().get_context_data(**kwargs)
+        # Own routines only. A coach in a trainer session IS the player here,
+        # so impersonated coaching sessions work without extra rules.
+        routine = get_object_or_404(
+            Routine,
+            pk=self.kwargs['routine_pk'],
+            user=self.request.user,
+        )
+
+        try:
+            target_date = datetime.date.fromisoformat(self.request.GET.get('date') or '')
+        except ValueError:
+            target_date = timezone.localdate()
+
+        day_data = routine.data_for_day(target_date)
+        has_day = day_data is not None and day_data.day is not None
+        is_rest = bool(has_day and day_data.day.is_rest)
+
+        def _num(value):
+            """Serializer decimals arrive as str/Decimal/int — normalize for display"""
+            if value in (None, ''):
+                return None
+            number = float(value)
+            return int(number) if number == int(number) else number
+
+        slots_render = []
+        day_payload = None
+        if has_day and not is_rest:
+            day_payload = dict(WorkoutDayDataGymModeSerializer(day_data).data)
+            exercise_ids = {
+                config['exercise'] for slot in day_payload['slots'] for config in slot['sets']
+            }
+            names = {}
+            for exercise in Exercise.objects.filter(id__in=exercise_ids):
+                translation = exercise.get_translation()
+                names[exercise.id] = (
+                    translation.name if translation else f'Exercise #{exercise.id}'
+                )
+            rep_units = dict(RepetitionUnit.objects.values_list('id', 'name'))
+            weight_units = dict(WeightUnit.objects.values_list('id', 'name'))
+            seconds_id = next(
+                (pk for pk, name in rep_units.items() if name == 'Seconds'), None
+            )
+
+            for slot in day_payload['slots']:
+                entries = []
+                for config in slot['sets']:
+                    reps_unit_id = config['repetitions_unit']
+                    weight_unit_id = config['weight_unit']
+                    entries.append(
+                        {
+                            'slot_entry_id': config['slot_entry_id'],
+                            'exercise_id': config['exercise'],
+                            'name': names.get(config['exercise'], f'#{config["exercise"]}'),
+                            'sets': int(config['sets'] or 1),
+                            'reps': _num(config['repetitions']),
+                            'max_reps': _num(config['max_repetitions']),
+                            'reps_unit_id': reps_unit_id,
+                            'reps_unit': rep_units.get(reps_unit_id, ''),
+                            'is_seconds': bool(seconds_id and reps_unit_id == seconds_id),
+                            'weight': _num(config['weight']),
+                            'weight_unit_id': weight_unit_id,
+                            'weight_unit': weight_units.get(weight_unit_id, ''),
+                            'rest': _num(config['rest']),
+                            'text_repr': config['text_repr'],
+                        }
+                    )
+                slots_render.append(
+                    {
+                        'comment': slot['comment'],
+                        'is_superset': slot['is_superset'],
+                        'entries': entries,
+                    }
+                )
+
+        context.update(
+            {
+                'routine': routine,
+                'target_date': target_date,
+                'has_day': has_day,
+                'is_rest': is_rest,
+                'day_name': day_payload['day']['name'] if day_payload else '',
+                'day_label': (day_payload['label'] if day_payload else '') or '',
+                'day_type': day_payload['day']['type'] if day_payload else '',
+                'slots_render': slots_render,
+                'total_sets': sum(
+                    entry['sets'] for slot in slots_render for entry in slot['entries']
+                ),
+                'log_meta': {
+                    'routine': routine.pk,
+                    'day': day_payload['day']['id'] if day_payload else None,
+                    'iteration': day_data.iteration if has_day else None,
+                    'date': target_date.isoformat(),
+                    'rest_default': int(getattr(settings, 'WORKOUT_REST_DEFAULT', 90) or 90),
+                    'session_url': '/api/v2/workoutsession/',
+                    'log_url': '/api/v2/workoutlog/',
+                    'routine_url': routine.get_absolute_url(),
+                    'dashboard_url': reverse('core:dashboard'),
+                },
             }
         )
         return context

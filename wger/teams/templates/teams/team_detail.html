@@ -11,6 +11,11 @@
 
 {% block content %}
 <h4>{% translate "Roster" %}</h4>
+{% if players|length > 8 %}
+    <input type="text" id="roster-filter" class="form-control form-control-sm mb-2"
+           style="max-width: 18rem;" placeholder="{% translate 'Filter players…' %}"
+           autocomplete="off">
+{% endif %}
 <div class="table-responsive">
 <table class="table table-hover align-middle">
     <thead>
@@ -130,12 +135,23 @@
 <script>
     (function () {
         const master = document.getElementById('check-all-players');
-        if (!master) return;
-        master.addEventListener('change', function () {
-            document.querySelectorAll('.player-check').forEach(function (box) {
-                box.checked = master.checked;
+        if (master) {
+            master.addEventListener('change', function () {
+                document.querySelectorAll('.player-check').forEach(function (box) {
+                    box.checked = master.checked;
+                });
             });
-        });
+        }
+        const filter = document.getElementById('roster-filter');
+        if (filter) {
+            filter.addEventListener('input', function () {
+                const needle = this.value.toLowerCase();
+                document.querySelectorAll('tbody tr').forEach(function (row) {
+                    const name = row.children[1] ? row.children[1].textContent.toLowerCase() : '';
+                    row.classList.toggle('d-none', needle !== '' && !name.includes(needle));
+                });
+            });
+        }
     })();
 </script>
 {% endblock %}

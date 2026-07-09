@@ -282,6 +282,7 @@ urlpatterns = i18n_patterns(
     path('config/', include(('wger.config.urls', 'config'), namespace='config')),
     path('gym/', include(('wger.gym.urls', 'gym'), namespace='gym')),
     path('coach/', include(('wger.teams.urls', 'teams'), namespace='teams')),
+    path('train/', include(('wger.teams.urls_train', 'train'), namespace='train')),
     path('gallery/', include(('wger.gallery.urls', 'gallery'), namespace='gallery')),
     path('trophies/', include(('wger.trophies.urls', 'trophies'), namespace='trophies')),
     path(

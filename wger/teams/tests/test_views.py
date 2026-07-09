@@ -524,3 +524,89 @@ class PlayerDetailViewTestCase(TeamsViewsBase):
     def test_staff_allowed(self):
         self.user_login('admin')
         self.assertEqual(self.client.get(self._url()).status_code, 200)
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class WorkoutModeTestCase(TeamsViewsBase):
+    def _player_routine(self):
+        # wger
+        from wger.teams.services import materialize_assignment
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team_a,
+            start=datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+        return Routine.objects.get(user=self.player, is_template=False)
+
+    def _url(self, routine):
+        return reverse('train:mode', kwargs={'routine_pk': routine.pk})
+
+    def test_owner_gets_guided_day(self):
+        routine = self._player_routine()
+        self.login(self.player)
+        response = self.client.get(self._url(routine))
+        self.assertEqual(response.status_code, 200)
+        # engine shell + entries + session bar + logging endpoints
+        self.assertContains(response, 'wm-entry')
+        self.assertContains(response, 'wm-finish-btn')
+        self.assertContains(response, '/api/v2/workoutlog/')
+        self.assertContains(response, 'data-slot-entry')
+
+    def test_out_of_range_date_shows_empty_state(self):
+        routine = self._player_routine()
+        self.login(self.player)
+        response = self.client.get(self._url(routine) + '?date=2030-01-01')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No workout scheduled')
+        self.assertNotContains(response, 'wm-entry')
+
+    def test_foreign_routine_404(self):
+        routine = self._player_routine()
+        self.login(self.player2)
+        self.assertEqual(self.client.get(self._url(routine)).status_code, 404)
+
+    def test_anonymous_redirected(self):
+        routine = self._player_routine()
+        response = self.client.get(self._url(routine))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response['Location'])
+
+    def test_disabled_flag_403(self):
+        routine = self._player_routine()
+        self.login(self.player)
+        with override_settings(WGER_SETTINGS=_wger_settings(TEAMS_ENABLED=False)):
+            self.assertEqual(self.client.get(self._url(routine)).status_code, 403)
+
+    def test_banner_cta_links_to_workout_mode(self):
+        routine = self._player_routine()
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, self._url(routine))
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph'])
+class MetricColumnCollapseTestCase(TeamsViewsBase):
+    def _team_url(self):
+        return reverse('teams:detail', kwargs={'pk': self.team_a.pk})
+
+    def test_columns_hidden_without_data(self):
+        self.login(self.coach)
+        response = self.client.get(self._team_url())
+        self.assertNotContains(response, 'Exit Velo')
+
+    def test_column_appears_with_data(self):
+        # wger
+        from wger.measurements.models import (
+            Category,
+            Measurement,
+        )
+
+        category = Category.objects.create(user=self.player, name='Exit Velo', unit='mph')
+        Measurement.objects.create(category=category, date=datetime.date.today(), value=88)
+
+        self.login(self.coach)
+        response = self.client.get(self._team_url())
+        self.assertContains(response, 'Exit Velo')
+        self.assertContains(response, '88')

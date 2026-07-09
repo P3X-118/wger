@@ -90,7 +90,10 @@
             <td>{% blocktranslate with days=window %}{{ days }} days{% endblocktranslate %}</td>
             <td class="text-end">
                 {% if data.2 is not None %}
-                    {{ data.2 }}% <small class="text-muted">({{ data.1 }}/{{ data.0 }})</small>
+                    {{ data.2 }}%
+                    <small class="text-muted">
+                        ({% blocktranslate with logged=data.1 planned=data.0 trimmed %}{{ logged }} logged / {{ planned }} planned{% endblocktranslate %})
+                    </small>
                 {% else %}
                     <span class="text-muted">-/-</span>
                 {% endif %}
