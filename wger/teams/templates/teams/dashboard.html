@@ -39,5 +39,73 @@
             </div>
         </div>
     {% endif %}
+
+    {% if widgets %}
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body py-2">
+                        <div class="text-muted small text-uppercase">{% translate "This week" %}</div>
+                        <div class="fs-5">
+                            {% include "teams/partial_adherence_chip.html" with data=widgets.adh7 %}
+                            {% if widgets.adh7 and widgets.adh7.2 is not None %}
+                                <small class="text-muted">
+                                    {% blocktranslate with logged=widgets.adh7.1 planned=widgets.adh7.0 trimmed %}
+                                        {{ logged }} of {{ planned }} sessions
+                                    {% endblocktranslate %}
+                                </small>
+                            {% else %}
+                                <small class="text-muted">{% translate "Nothing planned yet" %}</small>
+                            {% endif %}
+                        </div>
+                        <div class="text-muted small">
+                            {% translate "28 days" %}:
+                            {% include "teams/partial_adherence_chip.html" with data=widgets.adh28 %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body py-2">
+                        <div class="text-muted small text-uppercase">{% translate "My numbers" %}</div>
+                        {% for name, measurement in widgets.metrics %}
+                            <div class="d-flex justify-content-between">
+                                <span>{{ name }}</span>
+                                <span>
+                                    {% if measurement %}
+                                        <strong>{{ measurement.value }}</strong>
+                                        <small class="text-muted">{{ measurement.category.unit }}</small>
+                                    {% else %}
+                                        <span class="text-muted">-/-</span>
+                                    {% endif %}
+                                </span>
+                            </div>
+                        {% endfor %}
+                        <a href="{% url 'measurements:overview' %}" class="small">
+                            {% translate "Log a reading" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body py-2">
+                        <div class="text-muted small text-uppercase">{% translate "My team" %}</div>
+                        <div class="fs-6">{{ team_names|join:" · " }}</div>
+                        {% if widgets.is_coach %}
+                            <a href="{% url 'teams:overview' %}" class="small">
+                                {% translate "Coach console" %}
+                            </a>
+                        {% else %}
+                            <a href="{% url 'manager:template:public' %}" class="small">
+                                {% translate "Browse programs" %}
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
     {{ block.super }}
 {% endblock %}

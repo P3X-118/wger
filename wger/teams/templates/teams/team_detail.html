@@ -157,6 +157,11 @@
 {% endblock %}
 
 {% block options %}
+    {% if invites_enabled %}
+        <a href="{% url 'teams:invite' team.pk %}" class="btn btn-success">
+            {% translate "Invite players" %}
+        </a>
+    {% endif %}
     <a href="{% url 'teams:assign-hub' %}" class="btn btn-light">
         {% translate "Assign across teams" %}
     </a>

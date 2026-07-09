@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% load i18n static wger_extras django_bootstrap_breadcrumbs %}
+
+{% block title %}{% blocktranslate with team=team.name %}Invite players — {{ team }}{% endblocktranslate %}{% endblock %}
+
+{% block breadcrumbs %}
+    {{ block.super }}
+    {% breadcrumb "Teams" "teams:overview" %}
+    {% breadcrumb_raw team "teams:detail" team.pk %}
+    {% breadcrumb "Invite" "teams:invite" team.pk %}
+{% endblock %}
+
+{% block content %}
+{% if api_error %}
+    <div class="alert alert-warning">{{ api_error }}</div>
+{% endif %}
+
+{% if featured %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-auto text-center">
+                    <div id="invite-qr" class="bg-white p-2 rounded d-inline-block"
+                         style="width: 15rem; height: 15rem;"></div>
+                    <div class="text-muted small mt-1">
+                        {% translate "Scan with the player's phone camera" %}
+                    </div>
+                </div>
+                <div class="col">
+                    <h5 class="mb-1">{{ featured.name }}</h5>
+                    <p class="text-muted small mb-2">
+                        {% if featured.single_use %}
+                            <span class="badge text-bg-info">{% translate "Single use" %}</span>
+                        {% else %}
+                            <span class="badge text-bg-success">{% translate "Whole team" %}</span>
+                        {% endif %}
+                        {% translate "Expires" %}: {{ featured.expires|slice:":10" }}
+                    </p>
+                    <div class="input-group mb-2">
+                        <input type="text" readonly class="form-control form-control-sm"
+                               id="invite-link" value="{{ featured.url }}">
+                        <button type="button" class="btn btn-light btn-sm" id="invite-copy">
+                            {% translate "Copy" %}
+                        </button>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-success"
+                           href="sms:?&body={{ share_text|urlencode }}">
+                            <span class="{% fa_class 'comment-sms' %}"></span>
+                            {% translate "Text it" %}
+                        </a>
+                        <a class="btn btn-light"
+                           href="mailto:?subject={% blocktranslate with team=team.name %}Join {{ team }} at Prime Baseball{% endblocktranslate %}&body={{ share_text|urlencode }}">
+                            {% translate "Email app" %}
+                        </a>
+                    </div>
+                    <form method="post" class="mt-2 d-flex gap-2" style="max-width: 24rem;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="email">
+                        <input type="hidden" name="link" value="{{ featured.url }}">
+                        <input type="email" name="email" required class="form-control form-control-sm"
+                               placeholder="{% translate 'player@example.com' %}">
+                        <button type="submit" class="btn btn-light btn-sm text-nowrap">
+                            {% translate "Send from Prime" %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <p class="text-muted">
+        {% translate "No active invite links yet — create one below and share it as a QR code, text or email." %}
+    </p>
+{% endif %}
+
+<h5>{% translate "New invite link" %}</h5>
+<form method="post" class="row g-2 align-items-end mb-4" style="max-width: 34rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create">
+    <div class="col-auto">
+        <label class="form-label">{% translate "Valid for" %}</label>
+        <select name="days" class="form-select form-select-sm">
+            <option value="7">7 {% translate "days" %}</option>
+            <option value="14" selected>14 {% translate "days" %}</option>
+            <option value="30">30 {% translate "days" %}</option>
+        </select>
+    </div>
+    <div class="col-auto form-check ms-2 mb-2">
+        <input type="checkbox" class="form-check-input" name="single_use" id="single-use">
+        <label class="form-check-label" for="single-use">
+            {% translate "Single player (link dies after one signup)" %}
+        </label>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-success">{% translate "Create invite" %}</button>
+    </div>
+</form>
+
+{% if invitations|length > 1 or not featured %}
+    <h5>{% translate "Active invite links" %}</h5>
+    <table class="table table-sm align-middle" style="max-width: 44rem;">
+        {% for invitation in invitations %}
+            <tr>
+                <td>
+                    <a href="{% url 'teams:invite' team.pk %}?show={{ invitation.pk }}">
+                        {{ invitation.name }}
+                    </a>
+                </td>
+                <td class="text-muted small">{{ invitation.expires|slice:":10" }}</td>
+                <td>
+                    {% if invitation.single_use %}
+                        <span class="badge text-bg-info">{% translate "Single use" %}</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="pk" value="{{ invitation.pk }}">
+                        <button type="submit" class="btn btn-light btn-sm text-danger">
+                            {% translate "Revoke" %}
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+    </table>
+{% endif %}
+{% endblock %}
+
+{% block sidebar %}
+<h4>{% translate "How invites work" %}</h4>
+<p class="text-muted small">
+    {% blocktranslate with team=team.name trimmed %}
+        The player scans the QR (or opens the link), creates their own account
+        with their own password, and is added to {{ team }} automatically.
+        The first time they open the training app, their team program is
+        already waiting. Revoking a link only stops new signups — accounts
+        already created stay.
+    {% endblocktranslate %}
+</p>
+{% endblock %}
+
+{% block options %}
+    <a href="{% url 'teams:detail' team.pk %}" class="btn btn-light">
+        {% translate "Back to team" %}
+    </a>
+{% endblock %}
+
+{% if featured %}
+<script src="{% static 'teams/qrcode.js' %}"></script>
+<script>
+    (function () {
+        try {
+            var qr = qrcode(0, 'M');
+            qr.addData('{{ featured.url|escapejs }}');
+            qr.make();
+            document.getElementById('invite-qr').innerHTML =
+                qr.createSvgTag({ scalable: true, margin: 2 });
+        } catch (e) {
+            document.getElementById('invite-qr').textContent = '{{ featured.url|escapejs }}';
+        }
+        var copy = document.getElementById('invite-copy');
+        copy.addEventListener('click', function () {
+            var input = document.getElementById('invite-link');
+            input.select();
+            (navigator.clipboard
+                ? navigator.clipboard.writeText(input.value)
+                : Promise.reject()
+            ).then(function () { copy.textContent = '✓'; })
+             .catch(function () { document.execCommand('copy'); copy.textContent = '✓'; });
+        });
+    })();
+</script>
+{% endif %}

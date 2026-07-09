@@ -586,6 +586,158 @@ class WorkoutModeTestCase(TeamsViewsBase):
         self.assertContains(response, self._url(routine))
 
 
+INVITES_ON = {
+    'AUTHENTIK_SYNC_URL': 'https://idp.example.com',
+    'AUTHENTIK_SYNC_TOKEN': 'token',
+    'AUTHENTIK_ENROLLMENT_FLOW': 'prime-player-enrollment',
+}
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON, **INVITES_ON)
+class TeamInviteTestCase(TeamsViewsBase):
+    def _url(self):
+        return reverse('teams:invite', kwargs={'team_pk': self.team_a.pk})
+
+    def _invitation(self):
+        return {
+            'pk': 'abc-123',
+            'name': 'alpha-invite-2026-07-09',
+            'expires': '2026-07-23T00:00:00Z',
+            'single_use': False,
+            'url': 'https://idp.example.com/if/flow/prime-player-enrollment/?itoken=abc-123',
+        }
+
+    def test_coach_sees_invite_console(self):
+        # Standard Library
+        from unittest import mock
+
+        self.login(self.coach)
+        with mock.patch(
+            'wger.teams.views.authentik_api.list_team_invitations',
+            return_value=[self._invitation()],
+        ):
+            response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'invite-qr')
+        self.assertContains(response, 'itoken=abc-123')
+        self.assertContains(response, 'sms:')
+
+    def test_create_invitation(self):
+        # Standard Library
+        from unittest import mock
+
+        self.login(self.coach)
+        with mock.patch(
+            'wger.teams.views.authentik_api.create_team_invitation',
+            return_value=self._invitation(),
+        ) as create:
+            response = self.client.post(
+                self._url(), {'action': 'create', 'days': '14', 'single_use': ''}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('show=abc-123', response['Location'])
+        create.assert_called_once_with(
+            group_name='team-alpha',
+            label=mock.ANY,
+            days=14,
+            single_use=False,
+        )
+
+    def test_revoke_invitation(self):
+        # Standard Library
+        from unittest import mock
+
+        self.login(self.coach)
+        with mock.patch('wger.teams.views.authentik_api.revoke_invitation') as revoke:
+            response = self.client.post(self._url(), {'action': 'revoke', 'pk': 'abc-123'})
+        self.assertEqual(response.status_code, 302)
+        revoke.assert_called_once_with('abc-123')
+
+    def test_email_invite_sent(self):
+        # Standard Library
+        from unittest import mock
+
+        # Django
+        from django.core import mail
+
+        self.login(self.coach)
+        with mock.patch(
+            'wger.teams.views.authentik_api.list_team_invitations', return_value=[]
+        ):
+            response = self.client.post(
+                self._url(),
+                {
+                    'action': 'email',
+                    'email': 'kid@example.com',
+                    'link': 'https://idp.example.com/if/flow/x/?itoken=abc',
+                },
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('kid@example.com', mail.outbox[0].to)
+        self.assertIn('itoken=abc', mail.outbox[0].body)
+
+    def test_player_blocked(self):
+        self.login(self.player)
+        self.assertEqual(self.client.get(self._url()).status_code, 403)
+
+    def test_hidden_when_not_configured(self):
+        self.login(self.coach)
+        with override_settings(AUTHENTIK_ENROLLMENT_FLOW=''):
+            self.assertEqual(self.client.get(self._url()).status_code, 403)
+
+    def test_team_page_shows_invite_button(self):
+        # Standard Library
+
+        self.login(self.coach)
+        response = self.client.get(reverse('teams:detail', kwargs={'pk': self.team_a.pk}))
+        self.assertContains(response, self._url())
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph'])
+class DashboardWidgetsTestCase(TeamsViewsBase):
+    def test_player_sees_widgets(self):
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, 'This week')
+        self.assertContains(response, 'My numbers')
+        self.assertContains(response, 'Exit Velo')
+        self.assertContains(response, 'Alpha')
+
+    def test_no_widgets_without_membership(self):
+        User.objects.create_user('loner', 'l@example.com', 'pw')
+        self.client.login(username='loner', password='pw')
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertNotContains(response, 'My numbers')
+
+    def test_coach_gets_console_card(self):
+        self.login(self.coach)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, 'Coach console')
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class WorkoutModeV2TestCase(TeamsViewsBase):
+    def test_v2_engine_markup(self):
+        # wger
+        from wger.teams.services import materialize_assignment
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team_a,
+            start=datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+        routine = Routine.objects.get(user=self.player, is_template=False)
+
+        self.login(self.player)
+        response = self.client.get(reverse('train:mode', kwargs={'routine_pk': routine.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'wm-pending')
+        self.assertContains(response, 'data-slot-index')
+        self.assertContains(response, 'wm-queue-')
+
+
 @override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph'])
 class MetricColumnCollapseTestCase(TeamsViewsBase):
     def _team_url(self):

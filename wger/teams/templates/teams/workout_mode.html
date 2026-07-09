@@ -44,13 +44,16 @@
         <div class="card mb-3">
             <div class="card-body">
                 {% if slot.is_superset %}
-                    <span class="badge text-bg-info float-end">{% translate "Superset" %}</span>
+                    <span class="badge text-bg-info float-end">
+                        {% translate "Superset — alternate exercises, rest after the round" %}
+                    </span>
                 {% endif %}
                 {% if slot.comment %}
                     <div class="text-muted small mb-1">{{ slot.comment }}</div>
                 {% endif %}
                 {% for entry in slot.entries %}
                     <div class="wm-entry py-3 {% if not forloop.first %}border-top{% endif %}"
+                         data-slot-index="{{ forloop.parentloop.counter0 }}"
                          data-slot-entry="{{ entry.slot_entry_id }}"
                          data-exercise="{{ entry.exercise_id }}"
                          data-sets="{{ entry.sets }}"
@@ -59,6 +62,7 @@
                          data-is-seconds="{% if entry.is_seconds %}1{% endif %}"
                          data-weight="{{ entry.weight|default_if_none:'' }}"
                          data-weight-unit="{{ entry.weight_unit_id|default_if_none:'' }}"
+                         data-weight-unit-name="{{ entry.weight_unit }}"
                          data-rest="{{ entry.rest|default_if_none:'' }}">
                         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                             <div>
@@ -84,8 +88,17 @@
                                     </div>
                                 {% endif %}
                                 {% if entry.weight %}
-                                    <div class="text-muted small mb-1">
-                                        {{ entry.weight }} {{ entry.weight_unit }}
+                                    <div class="input-group input-group-sm mb-2"
+                                         style="max-width: 13rem;">
+                                        <button class="btn btn-outline-secondary wm-w-minus"
+                                                type="button">&minus;</button>
+                                        <input type="number" inputmode="decimal" min="0" step="any"
+                                               style="min-width: 3.5rem;"
+                                               class="form-control text-center wm-weight"
+                                               value="{{ entry.weight }}">
+                                        <span class="input-group-text">{{ entry.weight_unit }}</span>
+                                        <button class="btn btn-outline-secondary wm-w-plus"
+                                                type="button">+</button>
                                     </div>
                                 {% endif %}
                                 <button type="button" class="btn btn-success wm-log">
@@ -114,6 +127,7 @@
                 <strong id="wm-progress">0 / {{ total_sets }}</strong>
                 <span class="text-muted">{% translate "sets" %}</span>
                 <span class="text-muted ms-2" id="wm-clock">00:00</span>
+                <span class="badge text-bg-warning ms-2 d-none" id="wm-pending"></span>
             </div>
             <button type="button" id="wm-finish-btn" class="btn btn-danger" disabled>
                 {% translate "Finish workout" %}
@@ -157,6 +171,9 @@
                     </div>
                     <textarea id="wm-notes" class="form-control mb-3" rows="2"
                               placeholder="{% translate 'Notes (optional)' %}"></textarea>
+                    <div id="wm-sync-warn" class="alert alert-warning py-2 d-none">
+                        {% translate "Still syncing logged sets — hang tight…" %}
+                    </div>
                     <button type="button" id="wm-save" class="btn btn-success w-100">
                         {% translate "Save & finish" %}
                     </button>
@@ -229,6 +246,47 @@
         return sessionId;
     }
 
+    // --- offline-tolerant log queue (optimistic UI) ------------------------
+    const QKEY = 'wm-queue-' + META.routine + '-' + META.date;
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch (e) {}
+    let flushing = false;
+    function persist() {
+        try { localStorage.setItem(QKEY, JSON.stringify(queue)); } catch (e) {}
+        updatePending();
+    }
+    function updatePending() {
+        const badge = $('#wm-pending');
+        badge.classList.toggle('d-none', queue.length === 0);
+        badge.textContent = queue.length
+            ? queue.length + ' {% translate "syncing" %}' : '';
+        const warn = $('#wm-sync-warn');
+        if (warn) warn.classList.toggle('d-none', queue.length === 0);
+        const save = $('#wm-save');
+        if (save && !finished) save.disabled = queue.length !== 0;
+    }
+    async function flush() {
+        if (flushing || !queue.length || !navigator.onLine) { updatePending(); return; }
+        flushing = true;
+        try {
+            await ensureSession();
+            while (queue.length) {
+                const body = Object.assign({}, queue[0], { session: sessionId });
+                const resp = await api('POST', META.log_url, body);
+                if (!resp.ok && resp.status >= 400 && resp.status < 500) {
+                    // a permanently bad payload must not wedge the queue
+                    queue.shift(); persist(); continue;
+                }
+                if (!resp.ok) break;
+                queue.shift(); persist();
+            }
+        } catch (e) { /* offline or IdP hiccup — retry later */ }
+        flushing = false;
+        updatePending();
+    }
+    setInterval(flush, 20000);
+    window.addEventListener('online', flush);
+
     // --- sound / vibration / wake lock ------------------------------------
     let audioCtx = null;
     function beep(freq, when, duration) {
@@ -294,9 +352,8 @@
     $('#wm-rest-skip').addEventListener('click', endRest);
     $('#wm-rest-plus').addEventListener('click', () => {
         const el = $('#wm-rest-clock');
-        el.textContent = (+el.textContent || 0) + 15;
-        // restart interval against the bumped value
-        let remaining = +el.textContent;
+        let remaining = (+el.textContent || 0) + 15;
+        el.textContent = remaining;
         clearInterval(restTimer);
         restTimer = setInterval(() => {
             remaining -= 1;
@@ -305,26 +362,39 @@
         }, 1000);
     });
 
-    // --- per-entry wiring ----------------------------------------------------
-    const queue = { chain: Promise.resolve() };
-    function enqueue(job) {
-        queue.chain = queue.chain.then(job).catch(() => {});
-        return queue.chain;
-    }
-
-    $$('.wm-entry').forEach(entryEl => {
-        const entry = {
+    // --- entries (with superset rounds) --------------------------------------
+    const entries = [];
+    $$('.wm-entry').forEach((entryEl, index) => {
+        entries.push({
+            el: entryEl,
+            index: index,
+            slotIndex: +entryEl.dataset.slotIndex,
             slotEntryId: +entryEl.dataset.slotEntry,
             exerciseId: +entryEl.dataset.exercise,
             total: +entryEl.dataset.sets || 1,
             targetReps: entryEl.dataset.reps === '' ? null : +entryEl.dataset.reps,
             repsUnit: entryEl.dataset.repsUnit === '' ? null : +entryEl.dataset.repsUnit,
             isSeconds: entryEl.dataset.isSeconds === '1',
-            weight: entryEl.dataset.weight === '' ? null : +entryEl.dataset.weight,
+            targetWeight: entryEl.dataset.weight === '' ? null : +entryEl.dataset.weight,
             weightUnit: entryEl.dataset.weightUnit === '' ? null : +entryEl.dataset.weightUnit,
             rest: entryEl.dataset.rest === '' ? null : +entryEl.dataset.rest,
             done: 0,
-        };
+        });
+    });
+    const slotMates = entry => entries.filter(
+        other => other.slotIndex === entry.slotIndex && other !== entry
+    );
+
+    function highlightNext(entry) {
+        entries.forEach(other => other.el.classList.remove('border-success', 'border', 'rounded'));
+        if (entry) {
+            entry.el.classList.add('border', 'border-success', 'rounded');
+            entry.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    entries.forEach(entry => {
+        const entryEl = entry.el;
         const circles = $('.wm-circles', entryEl);
         for (let i = 0; i < entry.total; i++) {
             const dot = document.createElement('span');
@@ -335,18 +405,22 @@
         const logBtn = $('.wm-log', entryEl);
         const countBadge = $('.wm-log-count', entryEl);
         const repsInput = $('.wm-reps', entryEl);
+        const weightInput = $('.wm-weight', entryEl);
         countBadge.textContent = '1/' + entry.total;
 
         const minus = $('.wm-minus', entryEl);
         const plus = $('.wm-plus', entryEl);
         if (minus) minus.addEventListener('click', () => { repsInput.value = Math.max(0, (+repsInput.value || 0) - 1); });
         if (plus) plus.addEventListener('click', () => { repsInput.value = (+repsInput.value || 0) + 1; });
+        const weightStep = (entryEl.dataset.weightUnitName || '').toLowerCase() === 'kg' ? 2.5 : 5;
+        const wMinus = $('.wm-w-minus', entryEl);
+        const wPlus = $('.wm-w-plus', entryEl);
+        if (wMinus) wMinus.addEventListener('click', () => { weightInput.value = Math.max(0, (+weightInput.value || 0) - weightStep); });
+        if (wPlus) wPlus.addEventListener('click', () => { weightInput.value = (+weightInput.value || 0) + weightStep; });
 
-        async function postLog(actualReps) {
-            await ensureSession();
+        function queueLog(actualReps) {
             const body = {
                 date: new Date().toISOString(),
-                session: sessionId,
                 routine: META.routine,
                 iteration: META.iteration,
                 slot_entry: entry.slotEntryId,
@@ -355,40 +429,47 @@
             };
             if (entry.targetReps !== null) body.repetitions_target = entry.targetReps;
             if (entry.repsUnit !== null) body.repetitions_unit = entry.repsUnit;
-            if (entry.weight !== null) {
-                body.weight = entry.weight;
-                body.weight_target = entry.weight;
+            if (weightInput) {
+                body.weight = +weightInput.value || 0;
+                if (entry.targetWeight !== null) body.weight_target = entry.targetWeight;
             }
             if (entry.weightUnit !== null) body.weight_unit = entry.weightUnit;
             if (entry.rest !== null) body.rest_target = entry.rest;
-            const resp = await api('POST', META.log_url, body);
-            if (!resp.ok) throw new Error('log failed ' + resp.status);
+            queue.push(body);
+            persist();
+            flush();
+        }
+
+        function afterSet() {
+            entry.done += 1;
+            bumpProgress();
+            circles.children[entry.done - 1].classList.add('bg-success', 'border-success');
+            if (entry.done >= entry.total) {
+                logBtn.classList.remove('btn-success');
+                logBtn.classList.add('btn-outline-success');
+                $('.wm-log-label', entryEl).textContent = '✓';
+                countBadge.textContent = entry.total + '/' + entry.total;
+                logBtn.disabled = true;
+            } else {
+                countBadge.textContent = (entry.done + 1) + '/' + entry.total;
+            }
+            if (loggedSets >= totalSets) { highlightNext(null); return; }
+
+            // Superset: alternate through slot mates; rest only once per round
+            const mates = slotMates(entry);
+            const pending = mates.find(other => other.done < other.total && other.done < entry.done);
+            if (pending) {
+                highlightNext(pending);
+                beep(660, 0, 0.1);
+            } else {
+                highlightNext(null);
+                startRest(entry.rest || META.rest_default, $('strong', entryEl).textContent);
+            }
         }
 
         function completeSet(actualReps) {
-            logBtn.disabled = true;
-            enqueue(() => postLog(actualReps)).then(() => {
-                entry.done += 1;
-                bumpProgress();
-                circles.children[entry.done - 1].classList.add('bg-success', 'border-success');
-                if (entry.done >= entry.total) {
-                    logBtn.classList.remove('btn-success');
-                    logBtn.classList.add('btn-outline-success');
-                    $('.wm-log-label', entryEl).textContent = '✓';
-                    countBadge.textContent = entry.total + '/' + entry.total;
-                    logBtn.disabled = true;
-                } else {
-                    countBadge.textContent = (entry.done + 1) + '/' + entry.total;
-                    logBtn.disabled = false;
-                }
-                if (loggedSets < totalSets) {
-                    startRest(entry.rest || META.rest_default, entryEl.querySelector('strong').textContent);
-                }
-            }).catch(() => {
-                logBtn.disabled = false;
-                logBtn.classList.add('btn-warning');
-                setTimeout(() => logBtn.classList.remove('btn-warning'), 1500);
-            });
+            queueLog(actualReps);   // optimistic: UI never waits on the network
+            afterSet();
         }
 
         if (entry.isSeconds) {
@@ -407,6 +488,7 @@
                 }
                 let remaining = entry.targetReps || 30;
                 running = new Date();
+                sessionStart = sessionStart || new Date();
                 beep(660, 0, 0.1);
                 const tick = setInterval(() => {
                     if (!running) { clearInterval(tick); return; }
@@ -424,6 +506,7 @@
             });
         } else {
             logBtn.addEventListener('click', () => {
+                sessionStart = sessionStart || new Date();
                 completeSet(+repsInput.value || 0);
             });
         }
@@ -436,11 +519,17 @@
         $$('.wm-impression').forEach(b => b.classList.remove('btn-success'));
         btn.classList.add('btn-success');
     }));
-    $('#wm-finish-btn').addEventListener('click', () => $('#wm-finish').classList.remove('d-none'));
+    $('#wm-finish-btn').addEventListener('click', () => {
+        flush();
+        $('#wm-finish').classList.remove('d-none');
+        updatePending();
+    });
     $('#wm-cancel-finish').addEventListener('click', () => $('#wm-finish').classList.add('d-none'));
     $('#wm-save').addEventListener('click', async () => {
         $('#wm-save').disabled = true;
         try {
+            await flush();
+            if (queue.length) { updatePending(); return; }
             await ensureSession();
             const hms = d => d.toTimeString().slice(0, 8);
             const patch = {
@@ -453,6 +542,7 @@
             const resp = await api('PATCH', META.session_url + sessionId + '/', patch);
             if (!resp.ok) throw new Error('save failed');
             finished = true;
+            try { localStorage.removeItem(QKEY); } catch (e) {}
             if (wakeLock) { try { wakeLock.release(); } catch (e) {} }
             $('#wm-summary').textContent =
                 loggedSets + ' / ' + totalSets + ' sets · ' + $('#wm-clock').textContent;
@@ -464,11 +554,15 @@
     });
 
     window.addEventListener('beforeunload', event => {
-        if (loggedSets > 0 && !finished) {
+        if ((loggedSets > 0 && !finished) || queue.length > 0) {
             event.preventDefault();
             event.returnValue = '';
         }
     });
+
+    // Recover logs a previous visit could not sync (e.g. dead cage wifi)
+    updatePending();
+    flush();
 })();
 </script>
 {% endif %}

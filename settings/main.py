@@ -237,6 +237,9 @@ TEAMS_METRICS = env.list(
 # IdP and a read-only API token. Empty = command refuses to run.
 AUTHENTIK_SYNC_URL = env.str('AUTHENTIK_SYNC_URL', '')
 AUTHENTIK_SYNC_TOKEN = env.str('AUTHENTIK_SYNC_TOKEN', '')
+# Invitation-gated Authentik enrollment flow slug for the coach invite console
+# (QR / text / email player invites). Empty = invite feature hidden.
+AUTHENTIK_ENROLLMENT_FLOW = env.str('AUTHENTIK_ENROLLMENT_FLOW', '')
 # Workout mode: default rest between sets (seconds) when a slot entry has no
 # explicit rest config.
 WORKOUT_REST_DEFAULT = env.int('WORKOUT_REST_DEFAULT', 90)

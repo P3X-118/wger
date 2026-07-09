@@ -49,6 +49,7 @@ from django.views.generic import (
 from wger.core.views.react import ReactView
 from wger.gym.helpers import is_same_gym
 from wger.manager.models import Routine
+from wger.teams import authentik as authentik_api
 from wger.teams.forms import BatchAssignmentForm
 from wger.teams.models import (
     AssignedRoutine,
@@ -238,6 +239,7 @@ class TeamDetailView(CoachAccessMixin, DetailView):
                 .order_by('template__name', 'user__username'),
                 'form': BatchAssignmentForm(coach=self.request.user),
                 'trainer_login_possible': self.request.user.has_perm('gym.gym_trainer'),
+                'invites_enabled': authentik_api.configured(),
             }
         )
         return context
@@ -503,18 +505,35 @@ class TodayDashboardView(ReactView):
             )
 
         day_data = current.routine.data_for_day(today) if current else None
+
+        # Baseball widgets: my-week adherence, my latest numbers, my team —
+        # only when the user is on a roster (players; coaches get a console card)
+        team_names = list(
+            Team.objects.filter(
+                memberships__user=user,
+                is_active=True,
+            ).values_list('name', flat=True)
+        )
+        widgets = None
+        if team_names:
+            adherence = roster_adherence([user]).get(user.pk, {})
+            metric_names = _metric_names()
+            my_metrics = latest_metrics([user], metric_names).get(user.pk, {})
+            widgets = {
+                'adh7': adherence.get(7),
+                'adh28': adherence.get(28),
+                'metrics': [(name, my_metrics.get(name)) for name in metric_names],
+                'is_coach': _is_coach(user),
+            }
+
         context.update(
             {
-                'team_names': list(
-                    Team.objects.filter(
-                        memberships__user=user,
-                        is_active=True,
-                    ).values_list('name', flat=True)
-                ),
+                'team_names': team_names,
                 'today_routine': current.routine if current else None,
                 'upcoming_routine': upcoming.routine if upcoming else None,
                 'today_day': day_data.day if day_data else None,
                 'today_label': (day_data.label if day_data else '') or '',
+                'widgets': widgets,
             }
         )
         return context
@@ -688,6 +707,99 @@ def player_detail(request, user_pk):
         ),
     }
     return render(request, 'teams/player_detail.html', context)
+
+
+@login_required
+def team_invite(request, team_pk):
+    """
+    Coach invite console: mint invitation links against the IdP's
+    invitation-gated enrollment flow and share them as QR / text / email.
+    Accounts are created ON the IdP (passwords never touch wger); the
+    invitation's fixed_data routes the new player into the team group, and the
+    normal first-login sync delivers their program.
+    """
+    team = get_object_or_404(Team, pk=team_pk)
+    _check_coach_or_403(request, team)
+    if not authentik_api.configured():
+        raise PermissionDenied()
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        try:
+            if action == 'create':
+                days = min(max(int(request.POST.get('days') or 14), 1), 60)
+                single_use = bool(request.POST.get('single_use'))
+                invitation = authentik_api.create_team_invitation(
+                    group_name=team.authentik_group,
+                    label=f'{team.slug}-invite-{timezone.localdate().isoformat()}',
+                    days=days,
+                    single_use=single_use,
+                )
+                messages.success(request, _('Invite link created.'))
+                return HttpResponseRedirect(
+                    reverse('teams:invite', kwargs={'team_pk': team.pk})
+                    + f'?show={invitation["pk"]}'
+                )
+            if action == 'revoke':
+                authentik_api.revoke_invitation(request.POST.get('pk') or '')
+                messages.success(request, _('Invite link revoked.'))
+            elif action == 'email':
+                # Django
+                from django.core.mail import send_mail
+                from django.core.validators import validate_email
+
+                recipient = (request.POST.get('email') or '').strip()
+                validate_email(recipient)
+                link = request.POST.get('link') or ''
+                send_mail(
+                    _('Join %(team)s at Prime Baseball') % {'team': team.name},
+                    _(
+                        'You are invited to join %(team)s.\n\n'
+                        'Create your account here: %(link)s\n\n'
+                        'After signing up, open the training app and your '
+                        'program will be waiting.'
+                    )
+                    % {'team': team.name, 'link': link},
+                    None,
+                    [recipient],
+                )
+                messages.success(
+                    request, _('Invite emailed to %(email)s.') % {'email': recipient}
+                )
+        except authentik_api.InviteError as error:
+            messages.error(request, str(error))
+        except Exception as error:  # bad email / bad input
+            messages.error(request, str(error))
+        return HttpResponseRedirect(reverse('teams:invite', kwargs={'team_pk': team.pk}))
+
+    invitations, api_error = [], ''
+    try:
+        invitations = authentik_api.list_team_invitations(team.authentik_group)
+    except authentik_api.InviteError as error:
+        api_error = str(error)
+
+    show = request.GET.get('show')
+    featured = next(
+        (invitation for invitation in invitations if invitation['pk'] == show),
+        invitations[0] if invitations else None,
+    )
+    share_text = ''
+    if featured:
+        share_text = _('Join %(team)s at Prime Baseball: %(url)s') % {
+            'team': team.name,
+            'url': featured['url'],
+        }
+    return render(
+        request,
+        'teams/invite.html',
+        {
+            'team': team,
+            'invitations': invitations,
+            'featured': featured,
+            'share_text': share_text,
+            'api_error': api_error,
+        },
+    )
 
 
 def _switch_target_allowed(trainer, target):
