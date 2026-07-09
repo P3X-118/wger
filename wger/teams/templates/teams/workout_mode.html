@@ -69,10 +69,11 @@
                             <div class="text-end">
                                 {% if not entry.is_seconds %}
                                     <div class="input-group input-group-sm mb-2 wm-stepper"
-                                         style="width: 10.5rem;">
+                                         style="max-width: 13rem;">
                                         <button class="btn btn-outline-secondary wm-minus"
                                                 type="button">&minus;</button>
                                         <input type="number" inputmode="numeric" min="0"
+                                               style="min-width: 3.5rem;"
                                                class="form-control text-center wm-reps"
                                                value="{{ entry.reps|default_if_none:10 }}">
                                         <span class="input-group-text">

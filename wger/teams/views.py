@@ -525,11 +525,12 @@ class WorkoutModeView(LoginRequiredMixin, TemplateView):
     Guided workout execution ("cage mode"): set counters, rep steppers and
     automatic rest timers for today's day of one of the user's own routines.
 
-    The day payload is produced server-side by the SAME serializer the native
-    React gym mode consumes (WorkoutDayDataGymModeSerializer on
-    routine.data_for_day), so computed sets/reps/weight/rest match wger
-    exactly; logging goes through wger's own REST API, so sessions and logs
-    are native (adherence, coach views and statistics all pick them up).
+    The day payload is produced server-side by the same serializers the native
+    React pages consume (display-mode slots on routine.data_for_day: entries
+    stay grouped with their full set count, unlike gym mode which explodes one
+    row per set), so computed sets/reps/weight/rest match wger exactly; logging
+    goes through wger's own REST API, so sessions and logs are native
+    (adherence, coach views and statistics all pick them up).
     """
 
     template_name = 'teams/workout_mode.html'
@@ -546,7 +547,7 @@ class WorkoutModeView(LoginRequiredMixin, TemplateView):
             WeightUnit,
         )
         from wger.exercises.models import Exercise
-        from wger.manager.api.serializers import WorkoutDayDataGymModeSerializer
+        from wger.manager.api.serializers import WorkoutDayDataDisplayModeSerializer
 
         context = super().get_context_data(**kwargs)
         # Own routines only. A coach in a trainer session IS the player here,
@@ -576,7 +577,7 @@ class WorkoutModeView(LoginRequiredMixin, TemplateView):
         slots_render = []
         day_payload = None
         if has_day and not is_rest:
-            day_payload = dict(WorkoutDayDataGymModeSerializer(day_data).data)
+            day_payload = dict(WorkoutDayDataDisplayModeSerializer(day_data).data)
             exercise_ids = {
                 config['exercise'] for slot in day_payload['slots'] for config in slot['sets']
             }
@@ -606,7 +607,12 @@ class WorkoutModeView(LoginRequiredMixin, TemplateView):
                             'reps': _num(config['repetitions']),
                             'max_reps': _num(config['max_repetitions']),
                             'reps_unit_id': reps_unit_id,
-                            'reps_unit': rep_units.get(reps_unit_id, ''),
+                            # short label so the stepper input keeps its width
+                            'reps_unit': (
+                                'reps'
+                                if rep_units.get(reps_unit_id) == 'Repetitions'
+                                else rep_units.get(reps_unit_id, '')
+                            ),
                             'is_seconds': bool(seconds_id and reps_unit_id == seconds_id),
                             'weight': _num(config['weight']),
                             'weight_unit_id': weight_unit_id,
