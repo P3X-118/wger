@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load i18n static wger_extras django_bootstrap_breadcrumbs %}
+
+{% block title %}{% translate "Import metrics" %}{% endblock %}
+
+{% block breadcrumbs %}
+    {{ block.super }}
+    {% breadcrumb "Teams" "teams:overview" %}
+    {% breadcrumb "Import metrics" "teams:metrics-import" %}
+{% endblock %}
+
+{% block content %}
+{% if error %}
+    <div class="alert alert-warning">{{ error }}</div>
+{% endif %}
+
+{% if report %}
+    <div class="card border-success mb-3">
+        <div class="card-body">
+            <h5>{% translate "Import finished" %}</h5>
+            <p class="mb-1">
+                {% blocktranslate with created=report.created updated=report.updated players=report.players trimmed %}
+                    {{ created }} new readings, {{ updated }} improved, across
+                    {{ players }} players.
+                {% endblocktranslate %}
+                <span class="text-muted">
+                    ({{ report.rows }} {% translate "rows" %},
+                    {{ report.metrics|join:", " }})
+                </span>
+            </p>
+            {% if report.unmatched %}
+                <div class="alert alert-warning py-2 mt-2 mb-0">
+                    <strong>{% translate "Not on your rosters:" %}</strong>
+                    {{ report.unmatched|join:", " }}
+                    <div class="small text-muted">
+                        {% translate "Names must match the player's full name (First Last or Last, First), username or email. Fix names in the export or in Authentik and re-import — re-imports are safe." %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card" style="max-width: 34rem;">
+    {% csrf_token %}
+    <div class="card-body">
+        <h5>{% translate "Upload a CSV export" %}</h5>
+        <p class="text-muted small">
+            {% translate "HitTrax, TrackMan or a plain sheet — columns are detected automatically (Batter/Pitcher/Player + ExitSpeed/Exit Vel, RelSpeed/Pitch Vel, 60-Yard). Each player gets their session max per day." %}
+        </p>
+        <div class="mb-2">
+            <input type="file" name="file" accept=".csv,text/csv" required class="form-control">
+        </div>
+        <div class="mb-3" style="max-width: 14rem;">
+            <label class="form-label small">
+                {% translate "Date to use when the file has no date column" %}
+            </label>
+            <input type="date" name="date" class="form-control form-control-sm"
+                   value="{% now 'Y-m-d' %}">
+        </div>
+        <button type="submit" class="btn btn-success">{% translate "Import" %}</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block sidebar %}
+<h4>{% translate "How it works" %}</h4>
+<ul class="text-muted small ps-3">
+    <li>{% translate "Rows are matched to players on YOUR teams only." %}</li>
+    <li>{% translate "HitTrax swing files: 'Exit Vel' is used; the machine 'Velo' column is ignored." %}</li>
+    <li>{% translate "TrackMan pitch files: ExitSpeed goes to the batter, RelSpeed to the pitcher." %}</li>
+    <li>{% translate "Session max per player per day; re-importing the same file changes nothing." %}</li>
+</ul>
+{% endblock %}

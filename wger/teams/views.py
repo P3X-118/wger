@@ -73,6 +73,15 @@ def _metric_names():
     ]
 
 
+def _metric_units():
+    units = {}
+    for spec in getattr(settings, 'TEAMS_METRICS', []) or []:
+        name, _, unit = spec.partition('|')
+        if name.strip():
+            units[name.strip()] = unit.strip()
+    return units
+
+
 logger = logging.getLogger(__name__)
 
 AUTH_BACKEND = 'django.contrib.auth.backends.ModelBackend'
@@ -707,6 +716,109 @@ def player_detail(request, user_pk):
         ),
     }
     return render(request, 'teams/player_detail.html', context)
+
+
+def _is_coach_of_player(user, player):
+    if user.is_staff or user.is_superuser:
+        return True
+    return TeamMembership.objects.filter(
+        user=player,
+        team__memberships__user=user,
+        team__memberships__is_coach=True,
+    ).exists()
+
+
+@login_required
+@require_POST
+def player_metric(request, user_pk):
+    """Coach punches in a reading (exit velo etc.) for one of their players"""
+    _check_coach_or_403(request)
+    player = get_object_or_404(User, pk=user_pk)
+    if not _is_coach_of_player(request.user, player):
+        raise PermissionDenied()
+
+    # wger
+    from wger.measurements.models import (
+        Category as MeasurementCategory,
+        Measurement,
+    )
+
+    metric = (request.POST.get('metric') or '').strip()
+    if metric not in _metric_names():
+        raise PermissionDenied()
+    try:
+        value = float(request.POST.get('value'))
+    except (TypeError, ValueError):
+        messages.error(request, _('Enter a number.'))
+        return HttpResponseRedirect(reverse('teams:player', kwargs={'user_pk': player.pk}))
+    try:
+        reading_date = datetime.date.fromisoformat(request.POST.get('date') or '')
+    except ValueError:
+        reading_date = timezone.localdate()
+
+    category, _created = MeasurementCategory.objects.get_or_create(
+        user=player,
+        name=metric,
+        defaults={'unit': _metric_units().get(metric, '')},
+    )
+    # Measurement.date is a DateTimeField: match/store by local calendar day
+    existing = Measurement.objects.filter(category=category, date__date=reading_date).first()
+    if existing is not None:
+        # manual entry is authoritative for its date (unlike imports, which max)
+        existing.value = value
+        existing.save(update_fields=['value'])
+    else:
+        Measurement.objects.create(
+            category=category,
+            date=timezone.make_aware(
+                datetime.datetime.combine(reading_date, datetime.time(12, 0))
+            ),
+            value=value,
+        )
+    messages.success(
+        request,
+        _('%(metric)s recorded for %(player)s.')
+        % {'metric': metric, 'player': player.get_full_name() or player.username},
+    )
+    return HttpResponseRedirect(reverse('teams:player', kwargs={'user_pk': player.pk}))
+
+
+@login_required
+def metrics_import_view(request):
+    """
+    HitTrax / TrackMan / generic CSV import: session maxes land as per-player
+    measurements, scoped to the coach's rosters.
+    """
+    _check_coach_or_403(request)
+
+    report, error = None, ''
+    if request.method == 'POST':
+        # wger
+        from wger.teams.metrics_import import import_metrics_csv
+
+        upload = request.FILES.get('file')
+        if upload is None or upload.size > 5 * 1024 * 1024:
+            error = _('Pick a CSV file up to 5 MB.')
+        else:
+            try:
+                default_date = datetime.date.fromisoformat(request.POST.get('date') or '')
+            except ValueError:
+                default_date = timezone.localdate()
+            try:
+                report = import_metrics_csv(
+                    upload.read().decode('utf-8-sig', errors='replace'),
+                    players=list(_team_players(_coach_teams(request.user))),
+                    default_date=default_date,
+                    unit_map=_metric_units(),
+                )
+            except ValueError as exc:
+                error = str(exc)
+
+    return render(
+        request,
+        'teams/metrics_import.html',
+        {'report': report, 'error': error},
+    )
 
 
 @login_required

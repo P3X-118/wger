@@ -103,22 +103,36 @@
 </table>
 
 <h4>{% translate "Metrics" %}</h4>
-<table class="table table-sm">
+<table class="table table-sm align-middle">
     {% for name, measurement in metrics %}
         <tr>
-            <td>{{ name }}</td>
-            <td class="text-end">
+            <td>
+                {{ name }}
                 {% if measurement %}
-                    {{ measurement.value }} {{ measurement.category.unit }}
-                    <small class="text-muted">{{ measurement.date|date }}</small>
-                {% else %}
-                    <span class="text-muted">-/-</span>
+                    <div class="small">
+                        <strong>{{ measurement.value }}</strong>
+                        <span class="text-muted">{{ measurement.category.unit }}
+                            · {{ measurement.date|date }}</span>
+                    </div>
                 {% endif %}
+            </td>
+            <td class="text-end">
+                <form method="post" action="{% url 'teams:player-metric' player.pk %}"
+                      class="d-flex gap-1 justify-content-end">
+                    {% csrf_token %}
+                    <input type="hidden" name="metric" value="{{ name }}">
+                    <input type="hidden" name="date" value="{% now 'Y-m-d' %}">
+                    <input type="number" step="any" min="0" name="value"
+                           class="form-control form-control-sm text-end"
+                           style="width: 5.5rem;"
+                           placeholder="{% translate 'new' %}">
+                    <button type="submit" class="btn btn-light btn-sm">＋</button>
+                </form>
             </td>
         </tr>
     {% endfor %}
 </table>
 <p class="text-muted"><small>
-    {% translate "Metrics are per-player measurement categories; HitTrax / TrackMan imports land here by category name." %}
+    {% translate "Type a reading and hit + — or bulk-import HitTrax / TrackMan files from the Teams page." %}
 </small></p>
 {% endblock %}

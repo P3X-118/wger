@@ -739,6 +739,104 @@ class WorkoutModeV2TestCase(TeamsViewsBase):
 
 
 @override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph'])
+class ManualMetricEntryTestCase(TeamsViewsBase):
+    def _url(self):
+        return reverse('teams:player-metric', kwargs={'user_pk': self.player.pk})
+
+    def test_coach_records_reading(self):
+        # wger
+        from wger.measurements.models import Measurement
+
+        self.login(self.coach)
+        response = self.client.post(
+            self._url(),
+            {'metric': 'Exit Velo', 'value': '87.5', 'date': '2026-07-01'},
+        )
+        self.assertEqual(response.status_code, 302)
+        measurement = Measurement.objects.get(
+            category__user=self.player, category__name='Exit Velo'
+        )
+        self.assertEqual(float(measurement.value), 87.5)
+        self.assertEqual(measurement.category.unit, 'mph')
+
+        # same-date manual entry is authoritative (overwrites, not max)
+        self.client.post(
+            self._url(),
+            {'metric': 'Exit Velo', 'value': '85.0', 'date': '2026-07-01'},
+        )
+        measurement.refresh_from_db()
+        self.assertEqual(float(measurement.value), 85.0)
+
+    def test_player_cannot_record(self):
+        self.login(self.player)
+        response = self.client.post(
+            self._url(), {'metric': 'Exit Velo', 'value': '90', 'date': '2026-07-01'}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_unknown_metric_rejected(self):
+        self.login(self.coach)
+        response = self.client.post(
+            self._url(), {'metric': 'Shoe Size', 'value': '11', 'date': '2026-07-01'}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_foreign_coach_blocked(self):
+        coach2 = User.objects.create_user('coach2', 'c2@example.com', 'pw')
+        coach2.groups.add(Group.objects.get(name='gym_trainer'))
+        TeamMembership.objects.create(team=self.team_b, user=coach2, is_coach=True)
+        self.login(coach2)
+        response = self.client.post(
+            self._url(), {'metric': 'Exit Velo', 'value': '90', 'date': '2026-07-01'}
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph'])
+class MetricsImportViewTestCase(TeamsViewsBase):
+    def _url(self):
+        return reverse('teams:metrics-import')
+
+    def test_coach_uploads_csv(self):
+        # Django
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # wger
+        from wger.measurements.models import Measurement
+
+        self.player.first_name, self.player.last_name = 'Player', 'One'
+        self.player.save()
+        upload = SimpleUploadedFile(
+            'session.csv',
+            b'Player,Date,Exit Vel\nPlayer One,7/1/2026,88.7\n',
+            content_type='text/csv',
+        )
+        self.login(self.coach)
+        response = self.client.post(self._url(), {'file': upload, 'date': '2026-07-01'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Import finished')
+        self.assertTrue(
+            Measurement.objects.filter(
+                category__user=self.player, category__name='Exit Velo'
+            ).exists()
+        )
+
+    def test_player_blocked(self):
+        self.login(self.player)
+        self.assertEqual(self.client.get(self._url()).status_code, 403)
+
+    def test_bad_file_reports_error(self):
+        # Django
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile('x.csv', b'Foo,Bar\n1,2\n', content_type='text/csv')
+        self.login(self.coach)
+        response = self.client.post(self._url(), {'file': upload})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No player column')
+
+
+@override_settings(WGER_SETTINGS=TEAMS_ON, TEAMS_METRICS=['Exit Velo|mph', 'Throw Velo|mph'])
 class MetricColumnCollapseTestCase(TeamsViewsBase):
     def _team_url(self):
         return reverse('teams:detail', kwargs={'pk': self.team_a.pk})
