@@ -134,9 +134,45 @@ class WgerSocialAccountAdapter(DefaultSocialAccountAdapter):
         self._sync_teams(user, sociallogin)
         return user
 
+    def _adopt_existing_user(self, request, sociallogin):
+        """
+        Link a first-time social login to a pre-created local account.
+
+        The roster pre-sync (and imports) create wger users BEFORE their first
+        SSO login. Without linking, allauth's signup then collides with the
+        taken username/email and the login dead-ends (or would mint a
+        duplicate). The IdP asserts these claims, so adopting an UNLINKED
+        matching account is as trusted as the groups claim; accounts that
+        already have a social link are never touched.
+        """
+        claims = self._claims(sociallogin)
+        username = (claims.get('preferred_username') or '').strip()
+        email = (claims.get('email') or '').strip()
+
+        # Django
+        from django.contrib.auth import get_user_model
+
+        user_model = get_user_model()
+        user = None
+        if username:
+            user = user_model.objects.filter(username__iexact=username).first()
+        if user is None and email:
+            user = user_model.objects.filter(email__iexact=email).first()
+        if user is not None and not user.socialaccount_set.exists():
+            sociallogin.connect(request, user)
+            logger.info('wger SSO: adopted pre-created account %s', user.username)
+
     def pre_social_login(self, request, sociallogin):
         super().pre_social_login(request, sociallogin)
-        # Returning users: re-sync admin, profile and teams from current claims.
+        # First-time logins: adopt a roster-pre-synced local account instead
+        # of colliding with its username/email.
+        if not getattr(sociallogin, 'is_existing', False):
+            try:
+                self._adopt_existing_user(request, sociallogin)
+            except Exception:
+                logger.exception('wger SSO: account adoption failed')
+        # Returning (incl. just-adopted) users: re-sync admin, profile and
+        # teams from current claims.
         if getattr(sociallogin, 'is_existing', False):
             self._sync_admin(sociallogin.user, sociallogin)
             self._sync_profile(sociallogin.user, sociallogin)

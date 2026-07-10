@@ -146,6 +146,70 @@ class AdapterTeamsSyncTestCase(WgerTestCase):
         self.assertEqual(self.user.first_name, 'Mike')
         self.assertEqual(self.user.last_name, 'De La Cruz')
 
+    def test_pre_created_account_adopted_on_first_login(self):
+        """Roster pre-sync creates the user BEFORE their first SSO login —
+        the adapter must link (adopt) instead of colliding"""
+        # Django
+        from django.test import RequestFactory
+
+        # Third Party
+        from allauth.socialaccount.models import (
+            SocialAccount,
+            SocialLogin,
+        )
+
+        pre_created = User.objects.create_user('rostered', 'rostered@example.com')
+        pre_created.set_unusable_password()
+        pre_created.save()
+
+        sociallogin = SocialLogin(
+            user=User(username='rostered', email='rostered@example.com'),
+            account=SocialAccount(
+                provider='openid_connect',
+                uid='ak-uid-1',
+                extra_data={
+                    'userinfo': {
+                        'preferred_username': 'rostered',
+                        'email': 'rostered@example.com',
+                    }
+                },
+            ),
+        )
+        self.assertFalse(sociallogin.is_existing)
+        self.adapter.pre_social_login(RequestFactory().get('/'), sociallogin)
+
+        self.assertTrue(sociallogin.is_existing)
+        self.assertEqual(sociallogin.user.pk, pre_created.pk)
+        self.assertEqual(
+            SocialAccount.objects.filter(user=pre_created, uid='ak-uid-1').count(), 1
+        )
+
+    def test_already_linked_account_never_adopted(self):
+        # Django
+        from django.test import RequestFactory
+
+        # Third Party
+        from allauth.socialaccount.models import (
+            SocialAccount,
+            SocialLogin,
+        )
+
+        linked = User.objects.create_user('linked', 'linked@example.com', 'pw')
+        SocialAccount.objects.create(user=linked, provider='openid_connect', uid='original')
+
+        sociallogin = SocialLogin(
+            user=User(username='linked', email='linked@example.com'),
+            account=SocialAccount(
+                provider='openid_connect',
+                uid='impostor',
+                extra_data={'userinfo': {'preferred_username': 'linked'}},
+            ),
+        )
+        self.adapter.pre_social_login(RequestFactory().get('/'), sociallogin)
+
+        self.assertFalse(sociallogin.is_existing)
+        self.assertFalse(SocialAccount.objects.filter(uid='impostor').exists())
+
     def test_profile_untouched_without_name_claims(self):
         self.user.first_name = 'Keep'
         self.user.save()
