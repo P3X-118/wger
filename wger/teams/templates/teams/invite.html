@@ -97,6 +97,33 @@
     </div>
 </form>
 
+{% if featured %}
+<script src="{% static 'teams/qrcode.js' %}"></script>
+<script>
+    (function () {
+        try {
+            var qr = qrcode(0, 'M');
+            qr.addData('{{ featured.url|escapejs }}');
+            qr.make();
+            document.getElementById('invite-qr').innerHTML =
+                qr.createSvgTag({ scalable: true, margin: 2 });
+        } catch (e) {
+            document.getElementById('invite-qr').textContent = '{{ featured.url|escapejs }}';
+        }
+        var copy = document.getElementById('invite-copy');
+        copy.addEventListener('click', function () {
+            var input = document.getElementById('invite-link');
+            input.select();
+            (navigator.clipboard
+                ? navigator.clipboard.writeText(input.value)
+                : Promise.reject()
+            ).then(function () { copy.textContent = '✓'; })
+             .catch(function () { document.execCommand('copy'); copy.textContent = '✓'; });
+        });
+    })();
+</script>
+{% endif %}
+
 {% if invitations|length > 1 or not featured %}
     <h5>{% translate "Active invite links" %}</h5>
     <table class="table table-sm align-middle" style="max-width: 44rem;">
@@ -147,30 +174,3 @@
         {% translate "Back to team" %}
     </a>
 {% endblock %}
-
-{% if featured %}
-<script src="{% static 'teams/qrcode.js' %}"></script>
-<script>
-    (function () {
-        try {
-            var qr = qrcode(0, 'M');
-            qr.addData('{{ featured.url|escapejs }}');
-            qr.make();
-            document.getElementById('invite-qr').innerHTML =
-                qr.createSvgTag({ scalable: true, margin: 2 });
-        } catch (e) {
-            document.getElementById('invite-qr').textContent = '{{ featured.url|escapejs }}';
-        }
-        var copy = document.getElementById('invite-copy');
-        copy.addEventListener('click', function () {
-            var input = document.getElementById('invite-link');
-            input.select();
-            (navigator.clipboard
-                ? navigator.clipboard.writeText(input.value)
-                : Promise.reject()
-            ).then(function () { copy.textContent = '✓'; })
-             .catch(function () { document.execCommand('copy'); copy.textContent = '✓'; });
-        });
-    })();
-</script>
-{% endif %}
