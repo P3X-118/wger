@@ -98,6 +98,72 @@
 </table>
 </div>
 
+{% if team_week %}
+    <h4>{% translate "This week" %}</h4>
+    {% for row in team_week %}
+        <div class="d-flex gap-1 mb-2 overflow-auto align-items-stretch">
+            <div class="text-muted small align-self-center text-truncate"
+                 style="min-width: 8rem; max-width: 8rem;" title="{{ row.name }}">
+                {{ row.name }}
+            </div>
+            {% for chip in row.chips %}
+                <div class="flex-fill text-center" style="min-width: 4rem;">
+                    <div class="card h-100 {% if chip.is_today %}border-danger{% endif %} {% if not chip.in_range %}opacity-50{% endif %}">
+                        <div class="card-body px-1 py-1">
+                            <div class="small {% if chip.is_today %}text-danger fw-bold{% else %}text-muted{% endif %}">
+                                {{ chip.date|date:"D" }}
+                            </div>
+                            <div class="small {% if chip.is_rest %}text-muted{% endif %}"
+                                 style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                                 title="{{ chip.name }}">
+                                {% if chip.in_range %}{{ chip.name }}{% else %}&mdash;{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endfor %}
+{% endif %}
+
+{% if timeline %}
+    {% if timeline.gap_end %}
+        <div class="alert alert-warning py-2">
+            {% blocktranslate with end=timeline.gap_end trimmed %}
+                Program coverage ends {{ end }} — nothing is scheduled after.
+            {% endblocktranslate %}
+        </div>
+    {% elif timeline.no_program and players %}
+        <div class="alert alert-warning py-2">
+            {% translate "This team has no active program." %}
+        </div>
+    {% endif %}
+    {% if timeline.bars %}
+        <h4>{% translate "Program timeline" %}</h4>
+        <div class="mb-3">
+            {% for bar in timeline.bars %}
+                <div class="position-relative mb-1" style="height: 1.6rem;">
+                    <div class="position-absolute rounded px-2 small text-truncate
+                                {% if bar.state == 'active' %}text-bg-success{% elif bar.state == 'upcoming' %}text-bg-info{% else %}text-bg-secondary{% endif %}"
+                         style="left: {{ bar.left }}%; width: {{ bar.width }}%; line-height: 1.6rem;"
+                         title="{{ bar.name }}: {{ bar.start|date }} – {{ bar.end|date }}">
+                        {{ bar.name }}
+                    </div>
+                </div>
+            {% endfor %}
+            <div class="position-relative" style="height: 0.9rem;">
+                <div class="position-absolute border-start border-danger"
+                     style="left: {{ timeline.today_left }}%; height: 0.9rem;"></div>
+                <div class="position-absolute small text-danger"
+                     style="left: {{ timeline.today_left }}%; transform: translateX(-50%); top: -0.15rem;">
+                    ▲
+                </div>
+            </div>
+            <div class="text-muted small">{% translate "today" %} ▲ · {% translate "window: last week to +6 weeks" %}</div>
+        </div>
+    {% endif %}
+{% endif %}
+
 <h4>{% translate "Assign routines" %}</h4>
 <p class="text-muted mb-2">
     {% translate "Pick one or more routines below. Checked players get them individually; with nobody checked the whole team is assigned (including players who join or first sign in later)." %}
@@ -124,6 +190,13 @@
                     {{ form.replace.label }}
                 </label>
                 <div class="form-text">{{ form.replace.help_text }}</div>
+            </div>
+            <div class="form-check mb-2">
+                {{ form.align_week }}
+                <label class="form-check-label" for="{{ form.align_week.id_for_label }}">
+                    {{ form.align_week.label }}
+                </label>
+                <div class="form-text">{{ form.align_week.help_text }}</div>
             </div>
             <button type="submit" class="btn btn-success">
                 <span class="{% fa_class 'plus' %}"></span>

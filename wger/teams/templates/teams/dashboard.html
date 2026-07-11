@@ -40,6 +40,39 @@
         </div>
     {% endif %}
 
+    {% if week_chips %}
+        <div class="d-flex gap-1 mb-3 overflow-auto" id="week-strip">
+            {% for chip in week_chips %}
+                {% if chip.in_range %}
+                    <a href="{% url 'train:mode' today_routine.pk %}?date={{ chip.date|date:'Y-m-d' }}"
+                       class="text-decoration-none flex-fill" style="min-width: 4.5rem;">
+                        <div class="card text-center h-100 {% if chip.is_today %}border-danger{% endif %}">
+                            <div class="card-body px-1 py-2">
+                                <div class="small {% if chip.is_today %}text-danger fw-bold{% else %}text-muted{% endif %}">
+                                    {{ chip.date|date:"D j" }}
+                                </div>
+                                <div class="small {% if chip.is_rest %}text-muted{% else %}fw-bold{% endif %}"
+                                     style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                                     title="{{ chip.name }}">
+                                    {{ chip.name }}
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                {% else %}
+                    <div class="flex-fill" style="min-width: 4.5rem;">
+                        <div class="card text-center h-100 opacity-50">
+                            <div class="card-body px-1 py-2">
+                                <div class="small text-muted">{{ chip.date|date:"D j" }}</div>
+                                <div class="small text-muted">&mdash;</div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
     {% if widgets %}
         <div class="row g-2 mb-3">
             <div class="col-md-4">

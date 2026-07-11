@@ -74,6 +74,27 @@ class BatchAssignmentForm(forms.Form):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
 
+    align_week = forms.BooleanField(
+        label=_('Start on a Monday'),
+        required=False,
+        help_text=_(
+            'Snap the start to the next Monday so week-shaped programs line '
+            'up with real weeks (rest days on weekends).'
+        ),
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('align_week') and cleaned.get('start'):
+            start = cleaned['start']
+            days_ahead = (7 - start.weekday()) % 7
+            if days_ahead:
+                cleaned['start'] = start + datetime.timedelta(days=days_ahead)
+        if not cleaned.get('teams') and not cleaned.get('players'):
+            raise forms.ValidationError(_('Pick at least one team or player.'))
+        return cleaned
+
     def __init__(self, *args, coach=None, teams=None, players=None, **kwargs):
         """
         coach:   whose template library to offer (public + own)
@@ -89,9 +110,3 @@ class BatchAssignmentForm(forms.Form):
             self.fields['teams'].queryset = teams
         if players is not None:
             self.fields['players'].queryset = players
-
-    def clean(self):
-        cleaned = super().clean()
-        if not cleaned.get('teams') and not cleaned.get('players'):
-            raise forms.ValidationError(_('Pick at least one team or player.'))
-        return cleaned

@@ -586,6 +586,88 @@ class WorkoutModeTestCase(TeamsViewsBase):
         self.assertContains(response, self._url(routine))
 
 
+@override_settings(WGER_SETTINGS=TEAMS_ON)
+class CalendarPolishTestCase(TeamsViewsBase):
+    def _player_routine(self, start=None):
+        # wger
+        from wger.teams.services import materialize_assignment
+
+        assignment = RoutineAssignment.objects.create(
+            template=self.template,
+            team=self.team_a,
+            start=start or datetime.date.today(),
+        )
+        materialize_assignment(assignment)
+        return assignment, Routine.objects.get(user=self.player, is_template=False)
+
+    def test_week_strip_on_dashboard(self):
+        self._player_routine()
+        self.login(self.player)
+        response = self.client.get(reverse('core:dashboard'))
+        self.assertContains(response, 'week-strip')
+        self.assertContains(response, '?date=')
+
+    def test_workout_mode_date_arrows(self):
+        _, routine = self._player_routine()
+        self.login(self.player)
+        url = reverse('train:mode', kwargs={'routine_pk': routine.pk})
+
+        response = self.client.get(url)
+        next_day = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        # start boundary: no prev arrow, next arrow present
+        self.assertContains(response, f'?date={next_day}')
+        self.assertNotContains(
+            response,
+            f'?date={(datetime.date.today() - datetime.timedelta(days=1)).isoformat()}',
+        )
+
+        # one day in: both arrows + a Today link
+        response = self.client.get(url + f'?date={next_day}')
+        self.assertContains(response, f'?date={datetime.date.today().isoformat()}')
+        self.assertContains(response, 'Today')
+
+    def test_team_week_and_timeline(self):
+        self._player_routine()
+        self.login(self.coach)
+        response = self.client.get(reverse('teams:detail', kwargs={'pk': self.team_a.pk}))
+        self.assertContains(response, 'This week')
+        self.assertContains(response, 'Program timeline')
+
+    def test_gap_warning_when_coverage_ends_soon(self):
+        # start far enough back that the program ends 4 days from now
+        duration = self.template.duration.days
+        self._player_routine(
+            start=datetime.date.today() - datetime.timedelta(days=duration - 4)
+        )
+        self.login(self.coach)
+        response = self.client.get(reverse('teams:detail', kwargs={'pk': self.team_a.pk}))
+        self.assertContains(response, 'coverage ends')
+
+    def test_no_program_warning(self):
+        self.login(self.coach)
+        response = self.client.get(reverse('teams:detail', kwargs={'pk': self.team_a.pk}))
+        self.assertContains(response, 'no active program')
+
+    def test_align_week_snaps_start_to_monday(self):
+        self.login(self.coach)
+        wednesday = datetime.date.today()
+        while wednesday.weekday() != 2:
+            wednesday += datetime.timedelta(days=1)
+        response = self.client.post(
+            reverse('teams:assign', kwargs={'team_pk': self.team_a.pk}),
+            {
+                'templates': [self.template.pk],
+                'start': wednesday.isoformat(),
+                'note': '',
+                'align_week': 'on',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        assignment = RoutineAssignment.objects.get()
+        self.assertEqual(assignment.start.weekday(), 0)
+        self.assertGreater(assignment.start, wednesday)
+
+
 INVITES_ON = {
     'AUTHENTIK_SYNC_URL': 'https://idp.example.com',
     'AUTHENTIK_SYNC_TOKEN': 'token',

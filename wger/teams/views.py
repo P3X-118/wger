@@ -132,6 +132,105 @@ def _team_players(teams):
     )
 
 
+def _week_plan(routine, anchor=None):
+    """
+    Mon..Sun chips of the anchor week for one routine copy (the player's own
+    schedule; wger's cached date_sequence does the math).
+    """
+    today = timezone.localdate()
+    anchor = anchor or today
+    monday = anchor - datetime.timedelta(days=anchor.weekday())
+    chips = []
+    for offset in range(7):
+        day_date = monday + datetime.timedelta(days=offset)
+        data = None
+        if routine.start <= day_date <= routine.end:
+            data = routine.data_for_day(day_date)
+        has_day = data is not None and data.day is not None
+        is_rest = bool(has_day and data.day.is_rest)
+        if is_rest:
+            name = _('Rest')
+        elif has_day:
+            name = data.day.name or _('Training')
+        else:
+            name = ''
+        chips.append(
+            {
+                'date': day_date,
+                'is_today': day_date == today,
+                'in_range': has_day,
+                'is_rest': is_rest,
+                'name': name,
+            }
+        )
+    return chips
+
+
+def _team_week(team):
+    """One chips-row per active team program, projected from a real copy"""
+    rows = []
+    for assignment in team.assignments.filter(active=True).select_related('template'):
+        instance = (
+            assignment.instances.filter(routine__isnull=False)
+            .select_related('routine')
+            .first()
+        )
+        if instance is None:
+            continue
+        rows.append(
+            {
+                'name': assignment.template.name,
+                'chips': _week_plan(instance.routine),
+            }
+        )
+    return rows
+
+
+def _team_timeline(team):
+    """
+    Assignment bars over [today-7d, today+42d] plus a heads-up when program
+    coverage stops within the next week.
+    """
+    today = timezone.localdate()
+    window_start = today - datetime.timedelta(days=7)
+    window_end = today + datetime.timedelta(days=42)
+    span = (window_end - window_start).days
+
+    bars = []
+    coverage_end = None
+    for assignment in team.assignments.filter(active=True).select_related('template'):
+        end = assignment.start + assignment.template.duration
+        coverage_end = max(coverage_end, end) if coverage_end else end
+        if end < window_start or assignment.start > window_end:
+            continue
+        left = max(0, (assignment.start - window_start).days) / span * 100
+        right = min(span, (end - window_start).days) / span * 100
+        if assignment.start <= today <= end:
+            state = 'active'
+        elif assignment.start > today:
+            state = 'upcoming'
+        else:
+            state = 'ended'
+        bars.append(
+            {
+                'name': assignment.template.name,
+                'start': assignment.start,
+                'end': end,
+                'left': round(left, 1),
+                'width': round(max(right - left, 2), 1),
+                'state': state,
+            }
+        )
+
+    horizon = today + datetime.timedelta(days=7)
+    return {
+        'bars': bars,
+        'today_left': round((today - window_start).days / span * 100, 1),
+        'gap_end': coverage_end if coverage_end and coverage_end <= horizon else None,
+        'no_program': coverage_end is None,
+    }
+
+
 class CoachAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
@@ -249,6 +348,8 @@ class TeamDetailView(CoachAccessMixin, DetailView):
                 'form': BatchAssignmentForm(coach=self.request.user),
                 'trainer_login_possible': self.request.user.has_perm('gym.gym_trainer'),
                 'invites_enabled': authentik_api.configured(),
+                'team_week': _team_week(team),
+                'timeline': _team_timeline(team),
             }
         )
         return context
@@ -543,6 +644,7 @@ class TodayDashboardView(ReactView):
                 'today_day': day_data.day if day_data else None,
                 'today_label': (day_data.label if day_data else '') or '',
                 'widgets': widgets,
+                'week_chips': _week_plan(current.routine) if current else None,
             }
         )
         return context
@@ -657,10 +759,16 @@ class WorkoutModeView(LoginRequiredMixin, TemplateView):
                     }
                 )
 
+        today = timezone.localdate()
+        prev_date = target_date - datetime.timedelta(days=1)
+        next_date = target_date + datetime.timedelta(days=1)
         context.update(
             {
                 'routine': routine,
                 'target_date': target_date,
+                'prev_date': prev_date if routine.start <= prev_date <= routine.end else None,
+                'next_date': next_date if routine.start <= next_date <= routine.end else None,
+                'is_today_view': target_date == today,
                 'has_day': has_day,
                 'is_rest': is_rest,
                 'day_name': day_payload['day']['name'] if day_payload else '',

@@ -9,6 +9,22 @@
 {% endblock %}
 
 {% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+    {% if prev_date %}
+        <a class="btn btn-light btn-sm" href="?date={{ prev_date|date:'Y-m-d' }}"
+           title="{{ prev_date|date }}">&lsaquo;</a>
+    {% endif %}
+    <span class="text-muted small">{{ target_date|date }}</span>
+    {% if next_date %}
+        <a class="btn btn-light btn-sm" href="?date={{ next_date|date:'Y-m-d' }}"
+           title="{{ next_date|date }}">&rsaquo;</a>
+    {% endif %}
+    {% if not is_today_view %}
+        <a class="btn btn-link btn-sm" href="{% url 'train:mode' routine.pk %}">
+            {% translate "Today" %}
+        </a>
+    {% endif %}
+</div>
 {% if not has_day %}
     <div class="card">
         <div class="card-body text-center py-5">
@@ -37,7 +53,6 @@
     <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
         {% if day_name %}<span class="badge text-bg-danger">{{ day_name }}</span>{% endif %}
         {% if day_label %}<span class="badge text-bg-secondary">{{ day_label }}</span>{% endif %}
-        <span class="text-muted small">{{ target_date|date }}</span>
     </div>
 
     {% for slot in slots_render %}
